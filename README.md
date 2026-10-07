@@ -9,27 +9,13 @@
 ## This project was completed by an AI agent
 
 **Every line of this project was written by an AI agent: DeepSeek Harness, running the
-`deepseek-flash` model.** The human owner set the objective and supplied the decompiled
-Microsoft source trees; the analysis, the format reverse-engineering, the parser, the
-decompiler, the two front ends, the test harnesses and this documentation were produced by
-the agent, end to end, across a single working session.
+`deepseek-flash` model.**
 
 Nothing here is a port of existing code. The record layouts were recovered by reading
 decompiled Microsoft assemblies side by side and confirming each conclusion against real
-BAML bytes.
-
-The work that went into it, in short:
-
-* recovered **two mutually exclusive record framings** and **eight generation profiles**
-  directly from decompiled Microsoft source;
-* found **five separate payload differences** that make build 4093 incompatible with 4074 on
-  the wire — including one where a flag field and an id field share a single `Int16`, so a
-  naive read reports an assembly id of `4096` for an id of `0`;
-* built a decompiler that emits **XAML**, not a debug dump, for both lineages;
-* validated against **241 real BAML files** extracted from Microsoft resource manifests,
-  reaching **100% clean decompilation on every set**;
-* located and fixed a defect that **silently discarded 111 subtrees** in one document — one
-  that still produced well-formed XML and so could not have been caught by eye.
+BAML bytes — **two mutually exclusive record framings** and **eight generation profiles**,
+with **five payload differences** separating build 4093 from 4074 on the wire. The result is
+validated against **241 real BAML files** with **100% clean decompilation on every set**.
 
 See [`COMPLETION.md`](COMPLETION.md) for the full statement of what was completed, what was
 verified, and what remains unverified.
@@ -77,50 +63,35 @@ A folder tree and file list on the left, one tab per view on the right:
 
 | tab | shows |
 |---|---|
-| **Summary** | dialect, confidence, size, parse completeness, record histogram |
 | **XAML** | the decompiler output — the reverse of compilation |
 | **Records** | every record with offset, size and payload fields in declaration order |
 | **Tree** | the reconstructed markup tree with resolved type names |
 | **Tables** | the assembly / type / attribute interning tables and namespace mappings |
+| **Summary** | dialect, confidence, size, parse completeness, record histogram |
 | **Recon** | string tokens plus the raw bytes between them |
 
-Opening a folder labels each file with its detected generation and confidence. Views render
-on first visit and cache, so browsing a 51 KB stream stays responsive.
+Opening a folder labels each file with its detected generation and confidence, which is the
+quickest way to see whether a stream is 4074, 4093 or one of the LONG-lineage builds. Views
+render on first visit and cache, so browsing a 51 KB stream stays responsive.
 
-**Search.** `Ctrl+F` focuses the find bar; `Enter`/`F3` step forward, `Shift+Enter`/`Shift+F3`
-step back, both wrapping, with an `n/total` counter. A 51 KB stream decodes to far more text
-than fits on screen.
+`Ctrl+F` searches the visible view (`Enter`/`F3` forward, `Shift+Enter`/`Shift+F3` back, both
+wrapping, with an `n/total` counter) — necessary because a 51 KB stream decodes to far more
+text than fits on screen.
 
-**Commands.** `File > Save XAML as…` writes the current document. `File > Export all XAML…`
-decompiles every `.baml` under the selected folder, mirroring the source layout; files the
-reader refuses are counted as skipped rather than written as empty output.
-`File > Copy current view` copies the visible tab.
-
-**Localisation.** `View > Language` switches between 40 supported tags at runtime, without a
-restart, and remembers the choice. 24 languages ship with complete translations; the rest
-fall back to English and are greyed in the menu, so the list matches the product's supported
-languages without pretending to translate.
-
-**Right-to-left.** Arabic and Hebrew mirror the layout: `RightToLeft` and `RightToLeftLayout`
-are applied before any text is assigned. The content panes are deliberately pinned to
-left-to-right, because they hold hex offsets and markup whose direction belongs to the data,
-not to the interface language.
-
-**High DPI and theming** come from `app.manifest`: a Common-Controls 6.0 dependency (without
-which `EnableVisualStyles` does nothing and every control renders pre-XP) and PerMonitorV2
-DPI awareness, with the Vista-era `dpiAware` element alongside for older systems. A manifest
-is the only mechanism on .NET Framework — `Application.SetHighDpiMode` is .NET Core 3.0+.
+`File > Save XAML as…` writes the current document. `File > Export all XAML…` decompiles every
+`.baml` under the selected folder, mirroring the source layout; files the reader refuses are
+counted as skipped rather than written as empty output.
 
 ### CLI — `baml.exe`
 
 ```
-baml detect <file|dir>     report the detected dialect and confidence
-baml records <file>        decode and dump every record with offsets
-baml tree <file>           reconstruct and print the markup tree
-baml xaml <file>           decompile to XAML text
-baml tables <file>         print the assembly/type/attribute interning tables
-baml stats <file|dir>      record histogram and dialect summary
-baml recon <file>          reconnaissance dump (string tokens + inter-token gaps)
+baml xaml <file>          decompile to XAML text
+baml records <file>       decode and dump every record with offsets
+baml tree <file>          reconstruct and print the markup tree
+baml tables <file>        print the assembly/type/attribute interning tables
+baml detect <file|dir>    report the detected dialect and confidence
+baml stats <file|dir>     record histogram and dialect summary
+baml recon <file>         reconnaissance dump (string tokens + inter-token gaps)
 ```
 
 Both front ends render through one facade, `BamlFileView`, so they cannot drift apart in what
