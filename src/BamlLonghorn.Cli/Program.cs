@@ -28,6 +28,8 @@ usage:
 
 options:
   -q, --quiet                suppress the banner
+      --no-header            print only the result, with no per-file header
+                             (for pipelines: `baml --no-header xaml f.baml > f.xaml`)
 
 supported dialects:
   4074       real Longhorn application BAML (versioned + interned)  [primary]
@@ -77,6 +79,10 @@ exit codes:
                 else if (a == "--expand-brushes")
                 {
                     expandBrushes = true;
+                }
+                else if (a == "--no-header")
+                {
+                    _noHeader = true;
                 }
                 else if (a == "-?" || a == "-h" || a == "--help")
                 {
@@ -320,6 +326,16 @@ exit codes:
             return 0;
         }
 
+        /// <summary>
+        /// Suppresses the per-file provenance header.
+        ///
+        /// The header is useful when reading output by eye, but it makes the tool unusable in a
+        /// pipeline: a caller that wants the XAML and nothing else cannot separate the two. With
+        /// this set, `baml xaml` prints only the document, so its stdout can be redirected to a
+        /// file or compared against a source document by a test.
+        /// </summary>
+        private static bool _noHeader;
+
         private static BamlDocument Load(byte[] data, string path)
         {
             int confidence;
@@ -328,18 +344,24 @@ exit codes:
             {
                 throw new BamlParseException("unrecognised BAML dialect in " + path);
             }
-            Console.WriteLine("file    : {0}", path);
-            Console.WriteLine("dialect : {0} ({1}% confidence)", reader.Name, confidence);
-            Console.WriteLine("size    : {0} bytes", data.Length);
-            Console.WriteLine();
+            if (!_noHeader)
+            {
+                Console.WriteLine("file    : {0}", path);
+                Console.WriteLine("dialect : {0} ({1}% confidence)", reader.Name, confidence);
+                Console.WriteLine("size    : {0} bytes", data.Length);
+                Console.WriteLine();
+            }
 
             BamlDocument document = reader.Read(data);
-            Console.WriteLine("records : {0}", document.RecordCount);
-            if (!document.IsCompleteParse && document.Note != null)
+            if (!_noHeader)
             {
-                Console.WriteLine("note    : {0}", document.Note);
+                Console.WriteLine("records : {0}", document.RecordCount);
+                if (!document.IsCompleteParse && document.Note != null)
+                {
+                    Console.WriteLine("note    : {0}", document.Note);
+                }
+                Console.WriteLine();
             }
-            Console.WriteLine();
             return document;
         }
 

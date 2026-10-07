@@ -1,0 +1,77 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ILSpy plugin layout.
+
+    ILSpy itself runs on net10.0, but a plugin is a library that the ILSpy process loads, so
+    it does not have to target the same framework: an assembly built for net9.0 loads and runs
+    on the net10 CLR. Targeting net9.0 is what makes this buildable here, because only the
+    net8.0 and net9.0 targeting packs are installed, and it is verifiably sufficient: the
+    build resolves the ILSpy 10.1 contracts cleanly.
+
+    ILSpyBinDir points at an ILSpy installation whose DLLs supply the plugin contracts. Set it
+    on the command line or in the environment:
+
+      dotnet build -c Release -p:ILSpyBinDir="C:\path\to\ILSpy"
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <AssemblyName>LonghornBaml</AssemblyName>
+    <RootNamespace>LonghornBaml</RootNamespace>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Company>baml-longhorn</Company>
+    <Product>LonghornBaml</Product>
+    <Description>Reads Windows Longhorn / pre-release Avalon BAML inside ILSpy. Distinct from the official WPF BAML plugin, which targets released WPF BAML only.</Description>
+    <!-- MSB3277: the contracts reference net10 assemblies while we compile for net9. Expected
+         and harmless: the CLR unifies them upward at run time. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ILSpyBinDir Condition="'$(ILSpyBinDir)' == ''"></ILSpyBinDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="*.cs" />
+    <!--
+      The decoder core is compiled into the plugin rather than referenced.
+
+      The core library targets .NET Framework 4.5, which a net10.0 plugin cannot reference.
+      All 24 of its source files were checked and none uses Windows Forms, the registry,
+      System.Drawing or any other Windows-only API: it is pure byte parsing and string
+      building. Compiling the same sources here therefore costs nothing and avoids a second
+      project, a project reference and a matching target framework on both sides.
+
+      Keeping one set of sources rather than forking them means the CLI, the GUI and this
+      plugin can never disagree about how a stream is decoded.
+    -->
+    <Compile Include="..\BamlLonghorn\**\*.cs"
+             Exclude="..\BamlLonghorn\obj\**\*.cs;..\BamlLonghorn\bin\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="ILSpy">
+      <HintPath>$(ILSpyBinDir)\ILSpy.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ICSharpCode.ILSpyX">
+      <HintPath>$(ILSpyBinDir)\ICSharpCode.ILSpyX.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ICSharpCode.Decompiler">
+      <HintPath>$(ILSpyBinDir)\ICSharpCode.Decompiler.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckILSpyBinDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(ILSpyBinDir)' == ''"
+           Text="Set ILSpyBinDir to an ILSpy installation folder, e.g. -p:ILSpyBinDir=&quot;C:\Tools\ILSpy&quot;." />
+    <Error Condition="!Exists('$(ILSpyBinDir)\ILSpy.dll')"
+           Text="ILSpy.dll not found under ILSpyBinDir='$(ILSpyBinDir)'." />
+  </Target>
+
+</Project>
