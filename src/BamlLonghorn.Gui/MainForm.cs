@@ -30,6 +30,27 @@ namespace BamlLonghorn.Gui
         private readonly TextBox _summary = NewText();
         private readonly TextBox _xaml = NewText();
         private readonly TextBox _wpfXaml = NewText();
+
+        /// <summary>
+        /// The WPF render host. The preview shows what WPF builds from the converted markup, so the
+        /// markup is handed to a real XAML parser and drawn by WPF rather than approximated here.
+        /// </summary>
+        private readonly WpfPreviewHost _wpfPreview = new WpfPreviewHost();
+
+        private ToolStripLabel _zoomLabel;
+        private ToolStripComboBox _bgChoice;
+        private ToolStripLabel _previewStatus;
+
+        /// <summary>
+        /// Tab indices as constants.
+        ///
+        /// The record filter bar used to be shown when SelectedIndex == 2, and inserting the WPF
+        /// XAML tab at index 2 moved Records to 3, so the filter would have appeared on the wrong
+        /// tab. Naming the indices means a future insertion changes one place instead of silently
+        /// invalidating every literal.
+        /// </summary>
+        private const int TabIndexRecords = 3;
+        private const int TabIndexPreview = 7;
         private readonly TextBox _records = NewText();
         private readonly TextBox _tree = NewText();
         private readonly TextBox _tables = NewText();
@@ -537,28 +558,169 @@ namespace BamlLonghorn.Gui
             AddTab("Tree", _tree);
             AddTab("Tables", _tables);
             AddTab("Recon", _recon);
+            AddRenderPreviewTab();
             _tabs.SelectedIndexChanged += delegate
             {
                 // the filter only means anything on Records
                 if (_filterBar != null)
                 {
-                    _filterBar.Visible = _tabs.SelectedIndex == 2;
+                    _filterBar.Visible = _tabs.SelectedIndex == TabIndexRecords;
                 }
-                if (_tabs.SelectedIndex == 2 && _filterCount != null
+                if (_tabs.SelectedIndex == TabIndexRecords && _filterCount != null
                     && _filterCount.Text.Length == 0 && _filter.TextLength > 0)
                 {
                     ApplyRecordFilter();
                 }
                 RenderCurrentTab();
+                LoadPreviewIfSelected();
             };
         }
 
-        private void AddTab(string title, TextBox box)
+        /// <summary>
+        /// Feeds the converted markup to the WPF renderer when the preview tab is opened.
+        ///
+        /// Done on selection rather than eagerly for every document, because parsing and laying out
+        /// a WPF tree is the most expensive thing this window does and most visits to a document
+        /// never open the preview. The parse is wrapped because this runs on the UI thread and a
+        /// fault here must not take the window down; the host reports failures itself, so this only
+        /// has to guarantee that one cannot escape.
+        /// </summary>
+        private void LoadPreviewIfSelected()
+        {
+            if (_tabs.SelectedIndex != TabIndexPreview) return;
+            if (_wpfPreview == null || _wpfXaml == null) return;
+
+            try
+            {
+                string markup = _wpfXaml.Text;
+                if (string.IsNullOrEmpty(markup) && _currentPath != null)
+                {
+                    BamlFileView view = GetView(_currentPath);
+                    if (view != null) markup = view.Render(BamlView.WpfXaml);
+                }
+                _wpfPreview.Load(markup);
+                UpdateZoomLabel();
+                if (_previewStatus != null)
+                {
+                    _previewStatus.Text = _wpfPreview.HasContent
+                        ? "rendered"
+                        : "not renderable -- see the message above";
+                }
+            }
+            catch (Exception ex)
+            {
+                // the host already reports parse failures; this guards against anything else
+                try
+                {
+                    _wpfPreview.Load(string.Empty);
+                }
+                catch (Exception)
+                {
+                    // nothing further can be done, and reporting a failure to report a failure
+                    // would only obscure the original
+                }
+                if (_previewStatus != null)
+                    _previewStatus.Text = "preview failed: " + ex.GetType().Name;
+            }
+        }
+
+        private void AddTab(string title, Control box)
         {
             TabPage page = new TabPage(title);
             box.Dock = DockStyle.Fill;
             page.Controls.Add(box);
             _tabs.TabPages.Add(page);
+        }
+
+        /// <summary>
+        /// Builds the preview tab: a toolbar for zoom and background, and the WPF render host.
+        ///
+        /// Zoom and background are the controls the feature was asked for. Background is not
+        /// decoration: converted markup mixes elements that exist in WPF with ones that do not, and
+        /// whether attribute values are legible depends on what they are drawn against.
+        /// </summary>
+        private void AddRenderPreviewTab()
+        {
+            TabPage page = new TabPage("Preview");
+
+            ToolStrip bar = new ToolStrip();
+            bar.GripStyle = ToolStripGripStyle.Hidden;
+            bar.Dock = DockStyle.Top;
+
+            ToolStripButton zoomOut = new ToolStripButton("-");
+            zoomOut.ToolTipText = "zoom out (Ctrl+wheel)";
+            zoomOut.Click += delegate { _wpfPreview.ZoomOut(); UpdateZoomLabel(); };
+
+            ToolStripButton zoomIn = new ToolStripButton("+");
+            zoomIn.ToolTipText = "zoom in (Ctrl+wheel)";
+            zoomIn.Click += delegate { _wpfPreview.ZoomIn(); UpdateZoomLabel(); };
+
+            ToolStripButton reset = new ToolStripButton("100%");
+            reset.ToolTipText = "reset zoom and scroll";
+            reset.Click += delegate { _wpfPreview.ResetView(); UpdateZoomLabel(); };
+
+            _zoomLabel = new ToolStripLabel("100%");
+
+            _bgChoice = new ToolStripComboBox();
+            _bgChoice.DropDownStyle = ComboBoxStyle.DropDownList;
+            _bgChoice.Items.AddRange(new object[] { "White", "Light grey", "Dark", "Mid grey" });
+            _bgChoice.SelectedIndex = 0;
+            _bgChoice.SelectedIndexChanged += delegate
+            {
+                switch (_bgChoice.SelectedIndex)
+                {
+                    case 1: _wpfPreview.CanvasColor = Color.FromArgb(242, 242, 242); break;
+                    case 2: _wpfPreview.CanvasColor = Color.FromArgb(32, 32, 32); break;
+                    case 3: _wpfPreview.CanvasColor = Color.FromArgb(190, 190, 190); break;
+                    default: _wpfPreview.CanvasColor = Color.White; break;
+                }
+            };
+
+            ToolStripButton copy = new ToolStripButton("Copy XAML");
+            copy.ToolTipText = "copy the converted markup to the clipboard";
+            copy.Click += delegate
+            {
+                try
+                {
+                    if (_wpfXaml.Text.Length > 0) Clipboard.SetText(_wpfXaml.Text);
+                }
+                catch (Exception ex)
+                {
+                    // the clipboard can be held by another process; that must not take the window
+                    // down
+                    if (_previewStatus != null)
+                        _previewStatus.Text = "clipboard unavailable: " + ex.GetType().Name;
+                }
+            };
+
+            bar.Items.Add(zoomOut);
+            bar.Items.Add(zoomIn);
+            bar.Items.Add(reset);
+            bar.Items.Add(new ToolStripSeparator());
+            bar.Items.Add(_zoomLabel);
+            bar.Items.Add(new ToolStripSeparator());
+            bar.Items.Add(new ToolStripLabel("background"));
+            bar.Items.Add(_bgChoice);
+            bar.Items.Add(new ToolStripSeparator());
+            bar.Items.Add(copy);
+
+            _previewStatus = new ToolStripLabel();
+            _previewStatus.TextAlign = ContentAlignment.MiddleLeft;
+            bar.Items.Add(_previewStatus);
+
+            _wpfPreview.Dock = DockStyle.Fill;
+            _wpfPreview.CanvasColor = Color.White;
+
+            page.Controls.Add(_wpfPreview);
+            page.Controls.Add(bar);
+            _tabs.TabPages.Add(page);
+        }
+
+        /// <summary>Reflects the host's current zoom in the toolbar.</summary>
+        private void UpdateZoomLabel()
+        {
+            if (_zoomLabel == null) return;
+            _zoomLabel.Text = ((int)Math.Round(_wpfPreview.Zoom * 100)) + "%";
         }
 
         private static TextBox NewText()

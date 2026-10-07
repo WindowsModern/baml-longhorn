@@ -39,8 +39,21 @@
     <Reference Include="System" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
+    <!--
+      The preview renders converted markup with WPF itself, so the GUI needs the presentation
+      assemblies plus the ElementHost bridge that lets a WinForms control host a WPF element.
+      Without WindowsFormsIntegration there is no supported way to draw a FrameworkElement in a
+      WinForms container.
+    -->
+    <Reference Include="WindowsFormsIntegration" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="System.Xaml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="XamlPreview.cs" />
+    <Compile Include="WpfPreviewHost.cs" />
     <Compile Include="Localization.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
