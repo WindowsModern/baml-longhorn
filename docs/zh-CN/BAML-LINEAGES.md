@@ -9,12 +9,12 @@
 
 | 文件 | 字节数 | LONG | SHORT |
 |---|---|---|---|
-| `example.baml` (build 3683, from `ac.exe`) | 965 | **CLEAN to EOF, 35 recs** | rejected at offset 0 |
-| `481.baml` (older) | 43,627 | **CLEAN to EOF, 2149 recs** | rejected at offset 0 |
-| `HelloWorld-Longhorn-0.0.baml` | 226 | rejected | **CLEAN to EOF, 12 recs** |
-| `HelloWorld-AvalonCTP-0.2.baml` | 229 | rejected | partial (2 recs, stops at 47) |
-| `modulesizer.baml` (primary corpus) | 184 | rejected | **CLEAN to EOF, 7 recs** |
-| `desktopaurora-4074-original.baml` | 34,720 | rejected | partial (919 recs, stops at 8,898) |
+| `example.baml`（build 3683，来自 `ac.exe`） | 965 | **干净走查到 EOF，35 条记录** | 在偏移 0 处被拒绝 |
+| `481.baml`（更早） | 43,627 | **干净走查到 EOF，2149 条记录** | 在偏移 0 处被拒绝 |
+| `HelloWorld-Longhorn-0.0.baml` | 226 | 在偏移 0 处被拒绝 | **干净走查到 EOF，12 条记录** |
+| `HelloWorld-AvalonCTP-0.2.baml` | 229 | 在偏移 0 处被拒绝 | 部分（2 条记录，停在 47 处） |
+| `modulesizer.baml`（主语料库） | 184 | 在偏移 0 处被拒绝 | **干净走查到 EOF，7 条记录** |
+| `desktopaurora-4074-original.baml` | 34,720 | 在偏移 0 处被拒绝 | 部分（919 条记录，停在 8,898 处） |
 
 LONG 这一列的结果只有“干净”或“拒绝”两种，不存在任何含糊之处，因此它是一个具有决定性的判别依据。两个 SHORT 的部分结果都是在*较晚*的位置才停下（229 字节中的第 2 条记录；34,720 字节中的第 919 条记录），可见两个谱系界限分明，而 SHORT 的失败属于载荷层面，而非框架层面。
 
