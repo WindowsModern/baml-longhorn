@@ -49,27 +49,50 @@ Requires the **.NET 10 SDK**.
 
 ## Verification status
 
+All three checks below were run; none is asserted.
+
 **Builds clean** against `ILSpy_binaries_10.1.0.8386-x64`, and the output implements
-`ICSharpCode.ILSpy.IResourceFileHandler` — the compiler checked every signature rather than
-this being asserted.
+`ICSharpCode.ILSpy.IResourceFileHandler` — the compiler checked every signature.
 
-**The decode path is verified.** The plugin calls the decoder through exactly one seam,
-`LonghornBamlDecoder.ToXaml`, and that logic was compiled and exercised over all 241 corpus
-files: 103/103, 133/133 and 5/5 decoded, with `HelloWorld-AvalonCTP-0.2` correctly refused. The
-decoder core has no framework dependencies — all 24 of its source files were checked for
-Windows Forms, registry, `System.Drawing` and other Windows-only API and none is used — so it
-compiles unchanged for net10.0.
+**Discovery works through ILSpy's own composition mechanism.** ILSpy does not use the standalone
+MEF container (`System.Composition.Hosting` is not present in its folder). Its `deps.json` lists
+`TomsToolbox.Composition` over `Microsoft.Extensions.DependencyInjection`, which exposes one
+binding entry point, `IServiceCollection BindExports(IServiceCollection, Assembly[])`. Called on
+the plugin assembly, it registers three descriptors:
 
-**Not verified: that ILSpy actually loads and discovers the plugin.** No ILSpy run was
-performed, so MEF discovery of the exported type is untested. The contract is right and the
-reference list matches the official plugin's, but the end-to-end check is loading it once.
+```
+LonghornBaml.LonghornBamlResourceHandler
+ICSharpCode.ILSpy.IResourceFileHandler
+TomsToolbox.Composition.IExport<ICSharpCode.ILSpy.IResourceFileHandler>
+```
 
-Two details that were read out of the shipped assemblies rather than guessed, because both are
-easy to get wrong and fail silently:
+with the export attribute resolving to `System.Composition.ExportAttribute` from
+`System.Composition.AttributedModel` — the flavour ILSpy scans for.
+
+**The decode path works on real embedded resources.** `Microsoft.Windows.WCPClient.dll` from the
+build 4074 tree carries 109 `.baml` entries inside `Microsoft.Windows.WCPClient.g.resources`.
+Driven through the handler's exact call path — `BamlDetector.Detect`, then
+`BamlDetector.Load`, then `BamlXamlWriter.Write` — all 109 decoded, 0 refused, 0 failed, every one
+identified as build 4074 SHORT framing. That is the same shape as what ILSpy hands the handler: a
+name and an opened stream from a resource container.
+
+### What could not be verified, and why
+
+**No other Longhorn assembly could be tested.** The 4074 `WCPClient` loads under .NET 10; every
+other candidate fails with `BadImageFormatException` before any resource is reached — `0x80131107
+"Old version error"` for the 4083 and 4093 `WCPClient` assemblies, `0x8013110E "File is corrupt"`
+for the 4042 `PresentationFramework`. Their metadata is from the pre-release CLR and modern loaders
+reject it. ILSpy is subject to the same limit, so this bounds the plugin as much as the test.
+
+**The 4042 `WCPClient` carries no BAML at all** — 126,976 bytes with no `.resources` container —
+so the one generation whose profile has no sample remains without one.
+
+Two details were read out of the shipped assemblies rather than guessed, because both are easy to
+get wrong and fail silently:
 
 * `ExportAttribute` comes from **`System.Composition.AttributedModel`**, not
-  `System.ComponentModel.Composition`. Both MEF flavours define that attribute, and the wrong
-  one compiles and is then never discovered.
+  `System.ComponentModel.Composition`. Both MEF flavours define that attribute, and the wrong one
+  compiles and is then never discovered.
 * `LoadedAssembly` lives in **`ICSharpCode.ILSpyX`**, not `ICSharpCode.ILSpy`, even though the
   interface that uses it is in the latter.
 
