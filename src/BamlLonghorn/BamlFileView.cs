@@ -358,34 +358,40 @@ namespace BamlLonghorn
 
             sb.AppendLine();
             sb.AppendLine();
-            sb.AppendLine("<!--");
-            sb.AppendLine("  conversion report");
+            // The report body is built separately and sanitised before being wrapped in a
+            // comment. Its group headings use a run of hyphens as a separator, and XML forbids
+            // a double hyphen anywhere inside a comment, so emitting it verbatim made the whole
+            // document unloadable -- "a comment cannot contain '--'".
+            StringBuilder reportText = new StringBuilder(1024);
+            reportText.AppendLine("  conversion report");
             if (!report.IsLossless)
             {
-                sb.AppendLine("  NOTE: some elements have no WPF equivalent and keep their own");
-                sb.AppendLine("  name under the prefix below. Markup that uses them will not load");
-                sb.AppendLine("  in WPF until they are replaced by hand.");
+                reportText.AppendLine("  NOTE: some elements have no WPF equivalent and keep their own");
+                reportText.AppendLine("  name under the prefix below. Markup that uses them will not load");
+                reportText.AppendLine("  in WPF until they are replaced by hand.");
             }
-            sb.AppendLine("    elements seen        : " + report.ElementsSeen.ToString(CultureInfo.InvariantCulture));
-            sb.AppendLine("    attributes seen      : " + report.AttributesSeen.ToString(CultureInfo.InvariantCulture));
-            sb.AppendLine("    renamed elements     : " + report.Renamed.Count.ToString(CultureInfo.InvariantCulture));
-            sb.AppendLine("    substituted elements : " + report.Substituted.Count.ToString(CultureInfo.InvariantCulture));
-            sb.AppendLine("    unconvertible        : " + report.Unsupported.Count.ToString(CultureInfo.InvariantCulture));
-            sb.AppendLine("    WPF types available  : " + WpfTypeIndex.TypeCount.ToString(CultureInfo.InvariantCulture)
+            reportText.AppendLine("    elements seen        : " + report.ElementsSeen.ToString(CultureInfo.InvariantCulture));
+            reportText.AppendLine("    attributes seen      : " + report.AttributesSeen.ToString(CultureInfo.InvariantCulture));
+            reportText.AppendLine("    renamed elements     : " + report.Renamed.Count.ToString(CultureInfo.InvariantCulture));
+            reportText.AppendLine("    substituted elements : " + report.Substituted.Count.ToString(CultureInfo.InvariantCulture));
+            reportText.AppendLine("    unconvertible        : " + report.Unsupported.Count.ToString(CultureInfo.InvariantCulture));
+            reportText.AppendLine("    WPF types available  : " + WpfTypeIndex.TypeCount.ToString(CultureInfo.InvariantCulture)
                           + " (" + WpfTypeIndex.Source + ")");
 
-            AppendGroup(sb, "renamed (same role, different name)", report.Renamed);
-            AppendGroup(sb, "substituted (no exact equivalent)", report.Substituted);
-            AppendGroup(sb, "unconvertible (kept under the lh prefix)", report.Unsupported);
+            AppendGroup(reportText, "renamed (same role, different name)", report.Renamed);
+            AppendGroup(reportText, "substituted (no exact equivalent)", report.Substituted);
+            AppendGroup(reportText, "unconvertible (kept under the lh prefix)", report.Unsupported);
 
             if (report.AttributeRenames.Count > 0)
             {
-                sb.AppendLine("    --- attributes renamed ---");
+                reportText.AppendLine("    --- attributes renamed ---");
                 for (int i = 0; i < report.AttributeRenames.Count; i++)
                 {
-                    sb.AppendLine("      " + report.AttributeRenames[i]);
+                    reportText.AppendLine("      " + report.AttributeRenames[i]);
                 }
             }
+            sb.AppendLine("<!--");
+            sb.Append(BamlXamlWriter.SafeComment(reportText.ToString()));
             sb.AppendLine("-->");
             return sb.ToString();
         }

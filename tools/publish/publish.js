@@ -58,23 +58,65 @@ function storedCredential() {
   return fields.password;
 }
 
+// Retries are built in because this runs over links that are not always reliable, and a push of
+// several hundred blobs will hit a transient failure sooner or later. Transport errors and the
+// statuses a proxy or rate limiter returns are retried with a growing delay; a genuine client error
+// such as 404 or 422 is not, because retrying it would only waste time.
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 522, 524]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function api(pathname, token, init) {
-  const res = await fetch('https://api.github.com' + pathname, {
-    ...init,
-    headers: {
-      'User-Agent': 'baml-longhorn-publish',
-      Accept: 'application/vnd.github+json',
-      Authorization: 'Bearer ' + token,
-      ...(init && init.headers),
-    },
-  });
-  const text = await res.text();
-  let body = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  if (res.status >= 300) {
-    throw new Error(`${init && init.method || 'GET'} ${pathname} -> ${res.status} ${text.slice(0, 300)}`);
+  const method = (init && init.method) || 'GET';
+  const maxAttempts = 6;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let res;
+    try {
+      res = await fetch('https://api.github.com' + pathname, {
+        ...init,
+        headers: {
+          'User-Agent': 'baml-longhorn-publish',
+          Accept: 'application/vnd.github+json',
+          Authorization: 'Bearer ' + token,
+          ...(init && init.headers),
+        },
+      });
+    } catch (err) {
+      // a transport failure: DNS, TLS, connection reset
+      lastError = err;
+      if (attempt === maxAttempts) break;
+      const wait = Math.min(30000, 1000 * Math.pow(2, attempt - 1));
+      console.log(`    ${method} ${pathname} failed (${err.message}); retry ${attempt}/${maxAttempts - 1} in ${wait}ms`);
+      await sleep(wait);
+      continue;
+    }
+
+    const text = await res.text();
+    let body = null;
+    try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+
+    if (res.status < 300) return body;
+
+    if (RETRYABLE_STATUS.has(res.status) && attempt < maxAttempts) {
+      lastError = new Error(`${method} ${pathname} -> ${res.status} ${text.slice(0, 200)}`);
+      // honour Retry-After when the server sends it, otherwise back off exponentially
+      const header = res.headers.get('retry-after');
+      const wait = header
+        ? Math.min(60000, parseInt(header, 10) * 1000 || 5000)
+        : Math.min(30000, 1000 * Math.pow(2, attempt - 1));
+      console.log(`    ${method} ${pathname} -> ${res.status}; retry ${attempt}/${maxAttempts - 1} in ${wait}ms`);
+      await sleep(wait);
+      continue;
+    }
+
+    throw new Error(`${method} ${pathname} -> ${res.status} ${text.slice(0, 300)}`);
   }
-  return body;
+
+  throw new Error(`${method} ${pathname} failed after ${maxAttempts} attempts: ${lastError && lastError.message}`);
 }
 
 (async () => {

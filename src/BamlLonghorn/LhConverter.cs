@@ -24,6 +24,13 @@ namespace BamlLonghorn
         /// </summary>
         public readonly List<KeyValuePair<string, int>> Shortened = new List<KeyValuePair<string, int>>();
 
+        /// <summary>
+        /// Percentage lengths that were translated or dropped. Reported because a partial
+        /// percentage cannot be expressed in WPF at all, so those attributes are removed and the
+        /// layout differs from the original rather than being translated.
+        /// </summary>
+        public readonly List<string> PercentLengths = new List<string>();
+
         /// <summary>Attribute renames applied, as "owner.attribute -> new".</summary>
         public readonly List<string> AttributeRenames = new List<string>();
 
@@ -110,6 +117,13 @@ namespace BamlLonghorn
             int i = 0;
             bool anyUnsupported = false;
 
+            // The enclosing element, so that a bare positioning attribute can be resolved to the
+            // attached property of whichever panel owns it. Left on a child of a Canvas is
+            // Canvas.Left; Dock on a child of a DockPanel is DockPanel.Dock. There is no way to
+            // decide that from the attribute name alone, and getting it wrong is what produced
+            // "cannot set unknown member TextBlock.Dock".
+            Stack<string> parentStack = new Stack<string>();
+
             while (i < xaml.Length)
             {
                 int lt = xaml.IndexOf('<', i);
@@ -135,7 +149,9 @@ namespace BamlLonghorn
                 if (gt < 0) { sb.Append(xaml, lt, xaml.Length - lt); break; }
 
                 string tag = xaml.Substring(lt, gt - lt + 1);
-                string converted = ConvertTag(tag, options, report, ref anyUnsupported);
+                string parent = parentStack.Count > 0 ? parentStack.Peek() : null;
+                string converted = ConvertTag(tag, options, report, parent, ref anyUnsupported,
+                    parentStack);
                 sb.Append(converted);
                 i = gt + 1;
             }
@@ -158,6 +174,16 @@ namespace BamlLonghorn
             if (result.IndexOf(WpfNamespace, StringComparison.Ordinal) < 0)
             {
                 result = InjectDefaultNamespace(result, report);
+            }
+
+            // Names such as x:Name come from the mappings, and an undeclared prefix is itself a
+            // parse failure: "'x' is an undeclared prefix". The declaration is required whenever the
+            // output uses an x: name, whether or not the source declared one.
+            if (result.IndexOf("x:", StringComparison.Ordinal) >= 0
+                && result.IndexOf("xmlns:x=", StringComparison.Ordinal) < 0)
+            {
+                result = InjectDeclaration(result, "xmlns:x", XamlNamespace, report,
+                    "used by a mapped attribute such as ID to x:Name");
             }
 
             // add the lh prefix declaration beside the presentation namespace
@@ -275,15 +301,16 @@ namespace BamlLonghorn
         }
 
         /// <summary>
-        /// Adds the presentation namespace to the first element when the document declares none.
+        /// Adds a namespace declaration to the first element.
         ///
-        /// Several samples carry no namespace declaration, so their element names have no namespace
-        /// and no WPF reader can resolve them. Injecting the declaration at the root is the minimal
-        /// change that makes the names resolvable, and it is reported rather than done quietly.
+        /// Used both for the presentation namespace when a document declares none and for the x:
+        /// prefix when a mapped attribute introduced one, since both are cases where the markup is
+        /// otherwise correct and only a declaration is missing.
         /// </summary>
-        private static string InjectDefaultNamespace(string text, LhConversionReport report)
+        private static string InjectDeclaration(string text, string name, string value,
+            LhConversionReport report, string why)
         {
-            // find the end of the first opening tag's name
+            // find the end of the first opening tag's name, skipping comments and declarations
             int lt = text.IndexOf('<');
             while (lt >= 0 && lt + 1 < text.Length
                    && (text[lt + 1] == '!' || text[lt + 1] == '?'))
@@ -301,10 +328,118 @@ namespace BamlLonghorn
                 nameEnd++;
             }
 
-            report.NamespaceFixes.Add("no namespace declared -> added xmlns=\"" + WpfNamespace + "\"");
+            report.NamespaceFixes.Add(name + "=\"" + value + "\" added (" + why + ")");
             return text.Substring(0, nameEnd)
-                   + " xmlns=\"" + WpfNamespace + "\""
+                   + " " + name + "=\"" + value + "\""
                    + text.Substring(nameEnd);
+        }
+
+        /// <summary>
+        /// Adds the presentation namespace to the first element when the document declares none.
+        /// </summary>
+        private static string InjectDefaultNamespace(string text, LhConversionReport report)
+        {
+            return InjectDeclaration(text, "xmlns", WpfNamespace, report,
+                "no namespace was declared; element names would be unresolvable");
+        }
+
+        /// <summary>
+        /// Translates a percentage length into something WPF accepts, or returns null when the value
+        /// is not a percentage.
+        ///
+        /// Longhorn's Length carried a unit and <c>Percent</c> was one of them. WPF's LengthConverter
+        /// has no percentage unit at all -- it parses absolute lengths and <c>Auto</c> -- so
+        /// <c>Width="100%"</c> fails with "cannot create Width from the text 100%", and renaming
+        /// cannot help.
+        ///
+        /// The measured distribution decides the treatment. Of the pairs carrying a percentage, the
+        /// common ones by a wide margin are Width=100% with Height=100%, and Width=100% alone; the
+        /// rest are 10, 50, 70, 75 and 80 percent. A 100% dimension means "take the space the parent
+        /// offers", which WPF expresses as the corresponding alignment, so those become
+        /// Stretch and the attribute is dropped. That is the same layout rather than an approximation
+        /// of it.
+        ///
+        /// A partial percentage is where the layouts genuinely differ: WPF has no way to say "70% of
+        /// the parent". Those are also dropped, and reported, because the alternative is emitting a
+        /// value that cannot parse, and inventing a Grid or a converter would change the document's
+        /// structure rather than translate it. The caller records all of these so the loss is visible.
+        /// </summary>
+        private static string PercentReplacement(string name, string value)
+        {
+            if (string.IsNullOrEmpty(value)) return null;
+            if (value[value.Length - 1] != '%') return null;
+
+            bool isWidth = string.Equals(name, "Width", StringComparison.Ordinal);
+            bool isHeight = string.Equals(name, "Height", StringComparison.Ordinal);
+
+            if (isWidth || isHeight)
+            {
+                string number = value.Substring(0, value.Length - 1).Trim();
+                double pct;
+                if (!double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out pct))
+                {
+                    return null;
+                }
+
+                if (pct >= 100.0)
+                {
+                    return isWidth
+                        ? "HorizontalAlignment=\"Stretch\""
+                        : "VerticalAlignment=\"Stretch\"";
+                }
+
+                // A partial percentage has no WPF equivalent, so the attribute goes. Nothing is
+                // emitted in its place: XML does not allow a comment inside a tag, so
+                // <X <!-- Width dropped --> > is not merely ugly, it does not parse. An empty string
+                // removes the attribute, and the caller records it so the loss is still visible --
+                // through the report rather than through broken markup.
+                return string.Empty;
+            }
+
+            // Canvas.Left and the rest cannot be a percentage in WPF either; the element is positioned
+            // by absolute coordinates or not at all, so the attribute is dropped
+            if (name.IndexOf("Canvas.", StringComparison.Ordinal) >= 0
+                || string.Equals(name, "Left", StringComparison.Ordinal)
+                || string.Equals(name, "Top", StringComparison.Ordinal)
+                || string.Equals(name, "Right", StringComparison.Ordinal)
+                || string.Equals(name, "Bottom", StringComparison.Ordinal))
+            {
+                return string.Empty;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Makes a string safe to place inside an XML comment.
+        ///
+        /// XML forbids a double hyphen anywhere inside a comment and a trailing hyphen at its end, and
+        /// a reader rejects the whole document when it finds one -- "a comment cannot contain '--' and
+        /// cannot end with '-'". The converter annotates renaming decisions with text that can contain
+        /// both, because a type name is not under its control, so the text is sanitised rather than
+        /// assumed safe. This accounted for 18 of 103 documents failing to load.
+        /// </summary>
+        private static string SafeComment(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return string.Empty;
+
+            // a single hyphen is fine; a run of two or more is not
+            StringBuilder sb = new StringBuilder(text.Length + 8);
+            int i = 0;
+            while (i < text.Length)
+            {
+                if (text[i] != '-') { sb.Append(text[i]); i++; continue; }
+                int j = i;
+                while (j < text.Length && text[j] == '-') j++;
+                for (int k = i; k < j; k++)
+                {
+                    sb.Append('-');
+                    if (k + 1 < j) sb.Append(' ');   // break the run
+                }
+                i = j;
+            }
+            if (sb.Length > 0 && sb[sb.Length - 1] == '-') sb.Append(' ');
+            return sb.ToString();
         }
 
         /// <summary>Finds the '&gt;' that closes a tag, skipping quoted attribute values.</summary>
@@ -323,9 +458,17 @@ namespace BamlLonghorn
             return -1;
         }
 
-        /// <summary>Rewrites one complete tag: name, attributes, and so on.</summary>
+        /// <summary>
+        /// Rewrites one complete tag: its name, its attributes, and the parent stack.
+        ///
+        /// The stack is maintained here because a closing tag is the only place a parent goes out of
+        /// scope, and an owner is needed while the opening tag is being rewritten -- which is where a
+        /// bare positioning attribute has to be resolved to the attached property of the panel that
+        /// will actually read it.
+        /// </summary>
         private static string ConvertTag(string tag, LhConversionOptions o,
-            LhConversionReport report, ref bool anyUnsupported)
+            LhConversionReport report, string parent, ref bool anyUnsupported,
+            Stack<string> parentStack)
         {
             bool closing = tag.StartsWith("</", StringComparison.Ordinal);
             bool selfClosing = tag.EndsWith("/>", StringComparison.Ordinal);
@@ -337,6 +480,13 @@ namespace BamlLonghorn
                 nameEnd++;
 
             string rawName = tag.Substring(nameStart, nameEnd - nameStart);
+
+            if (closing)
+            {
+                // the enclosing element ends with this tag
+                if (parentStack.Count > 0) parentStack.Pop();
+            }
+
             LhElementMapping map = LhWpfMappings.FindElement(rawName);
             report.ElementsSeen++;
 
@@ -357,12 +507,30 @@ namespace BamlLonghorn
                 string shortName = rawName.Substring(rawName.LastIndexOf('.') + 1);
                 if (WpfTypeIndex.Exists(rawName) || WpfTypeIndex.Exists(shortName))
                 {
-                    string shortened = shortName;
-                    LhConversionReport.Bump(report.Shortened, rawName + " -> " + shortened);
-                    // write it out and move to the next tag
+                    LhConversionReport.Bump(report.Shortened, rawName + " -> " + shortName);
+
+                    // The attributes must still be rewritten. Returning early here with the body
+                    // copied verbatim was a real defect: it skipped every attribute rule for any
+                    // element whose name is a full CLR type name, which is most of them, so a
+                    // percentage length, a Dock or an ID on those elements was emitted untouched and
+                    // the document could not load. The short name is used for the owner lookup
+                    // because that is the type the reader will resolve.
                     StringBuilder sbn = new StringBuilder();
-                    sbn.Append(closing ? "</" : "<").Append(shortened)
-                       .Append(tag, nameEnd, tag.Length - nameEnd);
+                    if (!closing && comment != null && o.EmitComments)
+                    {
+                        sbn.Append("<!-- ").Append(comment).Append(" -->");
+                    }
+                    sbn.Append(closing ? "</" : "<").Append(shortName);
+                    string shortBody = tag.Substring(nameEnd, tag.Length - nameEnd);
+                    if (!closing && shortBody.IndexOf('=') >= 0)
+                    {
+                        shortBody = RewriteAttributes(shortName, shortBody, report, o, parent);
+                    }
+                    sbn.Append(shortBody);
+                    if (!closing && !selfClosing)
+                    {
+                        parentStack.Push(shortName);
+                    }
                     return sbn.ToString();
                 }
             }
@@ -411,25 +579,39 @@ namespace BamlLonghorn
                 }
             }
 
-            // attribute rewriting only on an opening tag
+            // attribute rewriting only on an opening tag; the parent decides how a bare positioning
+            // attribute is qualified
             string body = tag.Substring(nameEnd, tag.Length - nameEnd);
             if (!closing && body.IndexOf('=') >= 0)
             {
-                body = RewriteAttributes(rawName, body, report, o);
+                body = RewriteAttributes(rawName, body, report, o, parent);
             }
 
             StringBuilder sb = new StringBuilder();
             if (comment != null && o.EmitComments && !closing)
             {
-                sb.Append("<!-- ").Append(comment).Append(" -->");
+                sb.Append("<!-- ").Append(SafeComment(comment)).Append(" -->");
             }
             sb.Append(closing ? "</" : "<").Append(newName).Append(body);
+
+            // an opening tag that is not self-closing becomes the parent of what follows
+            if (!closing && !selfClosing)
+            {
+                parentStack.Push(newName);
+            }
+
             return sb.ToString();
         }
 
-        /// <summary>Renames attributes that the mapping table covers, leaving the rest alone.</summary>
+        /// <summary>
+        /// Renames attributes that the mapping table covers, leaving the rest alone.
+        ///
+        /// The parent element is passed through because a bare positioning name has no fixed owner:
+        /// Dock belongs to DockPanel and Left to Canvas, and which applies is decided by the panel the
+        /// element sits in, not by the element or the attribute.
+        /// </summary>
         private static string RewriteAttributes(string owner, string body,
-            LhConversionReport report, LhConversionOptions o)
+            LhConversionReport report, LhConversionOptions o, string parent)
         {
             StringBuilder sb = new StringBuilder(body.Length);
             int i = 0;
@@ -444,32 +626,89 @@ namespace BamlLonghorn
                 while (nameStart > i && !char.IsWhiteSpace(body[nameStart - 1])) nameStart--;
                 string name = body.Substring(nameStart, nameEnd - nameStart);
 
-                sb.Append(body, i, nameStart - i);
-
-                LhAttributeMapping m = LhWpfMappings.FindAttribute(owner, name);
-                if (m != null && !string.Equals(m.WpfName, name, StringComparison.Ordinal))
-                {
-                    sb.Append(m.WpfName);
-                    if (m.Note != null) report.AttributeRenames.Add(owner + "." + name + " -> " + m.WpfName);
-                }
-                else
-                {
-                    sb.Append(name);
-                }
-
-                // copy the '=' and any spaces, then the quoted value
-                sb.Append('=');
+                // read the value before writing anything, because a percentage length may suppress the
+                // attribute entirely and replace it with alignments
                 int q = nameEnd + 1;
-                while (q < body.Length && (body[q] == ' ' || body[q] == '\t')) { sb.Append(body[q]); q++; }
+                while (q < body.Length && (body[q] == ' ' || body[q] == '\t')) q++;
                 if (q >= body.Length || (body[q] != '"' && body[q] != '\''))
                 {
-                    i = nameEnd + 1;
+                    // no value; copy the name through and move on
+                    sb.Append(body, i, nameEnd - i);
+                    i = nameEnd;
                     continue;
                 }
                 char quote = body[q];
                 int closeQuote = body.IndexOf(quote, q + 1);
-                if (closeQuote < 0) { sb.Append(body, q, body.Length - q); break; }
-                sb.Append(body, q, closeQuote - q + 1);
+                if (closeQuote < 0)
+                {
+                    sb.Append(body, i, body.Length - i);
+                    break;
+                }
+                string value = body.Substring(q + 1, closeQuote - q - 1);
+
+                sb.Append(body, i, nameStart - i);
+
+                // Resolve the name first, then decide what to do with the value. The order matters:
+                // a percentage length has to be judged against the property it will actually occupy,
+                // and Longhorn's name for it is not always Width. RectangleWidth, for instance, maps
+                // to Width, so checking before the rename missed it and emitted
+                // RectangleWidth="100%" -- a member WPF has never heard of.
+                string effectiveName = name;
+                string attached = LhWpfMappings.ResolveAttached(parent, name);
+                if (attached != null)
+                {
+                    sb.Append(attached);
+                    report.AttributeRenames.Add(owner + "." + name + " -> " + attached
+                                                + "  (attached property of " + parent + ")");
+                    effectiveName = attached;
+                }
+                else
+                {
+                    LhAttributeMapping am = LhWpfMappings.FindAttribute(owner, name);
+                    if (am != null && am.WpfName == null)
+                    {
+                        // the mapping says WPF has no such member, so the attribute is removed rather
+                        // than emitted; a name no WPF type declares cannot be set and fails the parse
+                        report.AttributeRenames.Add(owner + "." + name + " dropped (" + am.Note + ")");
+                        sb.Length -= name.Length;
+                        i = closeQuote + 1;
+                        report.AttributesSeen++;
+                        continue;
+                    }
+                    if (am != null && !string.Equals(am.WpfName, name, StringComparison.Ordinal))
+                    {
+                        sb.Append(am.WpfName);
+                        if (am.Note != null)
+                            report.AttributeRenames.Add(owner + "." + name + " -> " + am.WpfName);
+                        effectiveName = am.WpfName;
+                    }
+                    else
+                    {
+                        sb.Append(name);
+                    }
+                }
+
+                // A percentage length is then handled against the resolved name, because WPF's
+                // LengthConverter rejects it outright -- "cannot create Width from the text 100%" --
+                // and no renaming changes that. Longhorn's Length carried a unit; WPF's has no
+                // percentage unit at all.
+                string percentReplacement = PercentReplacement(effectiveName, value);
+                if (percentReplacement != null)
+                {
+                    // the name has already been written, so undo it and emit the replacement instead
+                    sb.Length -= effectiveName.Length;
+                    sb.Append(percentReplacement);
+                    report.PercentLengths.Add(name + "=\"" + value + "\"" + (percentReplacement.Length == 0
+                        ? " dropped (WPF cannot express a percentage length)"
+                        : " -> " + percentReplacement));
+                    report.AttributesSeen++;
+                    i = closeQuote + 1;
+                    continue;
+                }
+
+                // the value's position was located above, before the name was written, so it is
+                // simply copied through here
+                sb.Append(body, nameEnd, closeQuote - nameEnd + 1);
                 report.AttributesSeen++;
                 i = closeQuote + 1;
             }

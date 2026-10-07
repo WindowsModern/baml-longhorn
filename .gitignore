@@ -44,3 +44,11 @@ desktop.ini
 # Local scratch
 Temp/
 _probe/
+
+# Local working material that is never published. The publisher excludes these by construction,
+# so they are absent from the published .gitignore; a local repository has to name them.
+Decompile*d/
+For Test/
+Temp/
+_probe/
+.vs/

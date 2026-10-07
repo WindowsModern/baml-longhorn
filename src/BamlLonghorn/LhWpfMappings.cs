@@ -133,13 +133,49 @@ namespace BamlLonghorn
             new LhAttributeMapping("Set", "PropertyPath", "Property",
                 "WPF Setter.Property takes a DependencyProperty, not a path"),
 
-            // Binding: Longhorn's Path is a plain string; WPF's is a PropertyPath. The markup
-            // text is the same, so only the element name changes.
-            new LhAttributeMapping("System.Windows.Data.Bind", "Path", "Path", null),
+            // Longhorn marks an element for lookup by name with ID; WPF uses the XAML language
+            // directive x:Name. This is the most common reason converted output fails to load --
+            // "cannot set unknown member DockPanel.ID" -- because ID is not a member of any WPF type.
+            new LhAttributeMapping(null, "ID", "x:Name", "Longhorn's ID is WPF's x:Name"),
+            new LhAttributeMapping(null, "IDREF", "x:Name", "Longhorn's IDREF is WPF's x:Name"),
 
-            // Dock: Longhorn attaches it to any child of a DockPanel; WPF needs the attached
-            // property form whenever the attribute is not on a DockPanel itself.
-            new LhAttributeMapping("System.Windows.Controls.DockPanel", "Dock", "DockPanel.Dock", null),
+            // Wrapping: Longhorn spells it TextWrap, and Wrap on other types. WPF uses TextWrapping.
+            new LhAttributeMapping(null, "TextWrap", "TextWrapping", null),
+            new LhAttributeMapping(null, "Wrap", "TextWrapping", null),
+
+            // WPF has TabStop on some types and IsTabStop on Control; IsTabStop covers the cases
+            // seen in the corpus.
+            new LhAttributeMapping(null, "TabStop", "IsTabStop", null),
+
+            // Longhorn spells the size of a Rectangle's fill separately from the Rectangle's own
+            // Width and Height. WPF has only the latter, so the two names collapse onto it -- and
+            // this had to be a rename rather than a pass-through, because RectangleWidth is not a
+            // member of any WPF type and its percentage value then escaped the length handling.
+            new LhAttributeMapping("Rectangle", "RectangleWidth", "Width",
+                "Longhorn's rectangle fill width is WPF's Width"),
+            new LhAttributeMapping("Rectangle", "RectangleHeight", "Height",
+                "Longhorn's rectangle fill height is WPF's Height"),
+
+            // Longhorn's slider carries TrackLength, which WPF's Slider does not have -- its track
+            // follows the control's own size. The name is dropped rather than passed through, because
+            // a member no WPF type declares makes the document unparseable.
+            new LhAttributeMapping("System.Windows.Controls.HorizontalSlider", "TrackLength", null,
+                "WPF Slider sizes its track from the control"),
+            new LhAttributeMapping("System.Windows.Controls.VerticalSlider", "TrackLength", null,
+                "WPF Slider sizes its track from the control"),
+
+            // Dock is an ATTACHED property, so it is written on the CHILD, never on the DockPanel:
+            //
+            //     <DockPanel>
+            //       <TextBlock DockPanel.Dock="Left" />
+            //     </DockPanel>
+            //
+            // The entry here used to name the DockPanel as the owner, which matched only the one
+            // case where the attribute never appears, so a child's Dock was emitted unchanged and a
+            // reader reported "cannot set unknown member TextBlock.Dock". No WPF type has a member
+            // called Dock, so the mapping is unconditional.
+            new LhAttributeMapping(null, "Dock", "DockPanel.Dock",
+                "Dock is an attached property and belongs on the child element"),
         };
 
         private static readonly Dictionary<string, LhElementMapping> _byElement =
@@ -168,6 +204,56 @@ namespace BamlLonghorn
         {
             LhElementMapping m;
             return _byElement.TryGetValue(lhName, out m) ? m : null;
+        }
+
+        /// <summary>
+        /// Attached properties whose bare name is ambiguous until the containing panel is known.
+        ///
+        /// These are written on the ELEMENT BEING POSITIONED, never on the type that defines them, so
+        /// the owner has to be resolved from the parent. "Left" is Canvas.Left inside a Canvas and
+        /// nothing at all elsewhere; "Dock" is DockPanel.Dock inside a DockPanel. Reflecting over the
+        /// installed assemblies confirms which types define them and that they are genuinely attached,
+        /// rather than ordinary dependency properties.
+        /// </summary>
+        /// <summary>The names that mean "an attached property of the containing panel".</summary>
+        private static readonly Dictionary<string, string[]> _panelAttached =
+            new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                { "Canvas", new string[] { "Left", "Top", "Right", "Bottom" } },
+                { "DockPanel", new string[] { "Dock" } },
+                { "Grid", new string[] { "Row", "Column", "RowSpan", "ColumnSpan" } },
+                { "InkCanvas", new string[] { "Left", "Top", "Right", "Bottom" } },
+                { "FixedPage", new string[] { "Left", "Top", "Right", "Bottom" } },
+            };
+
+        /// <summary>
+        /// Resolves a bare attribute name against the containing element, returning the qualified
+        /// attached-property name or null when the name is not an attached property of that panel.
+        ///
+        /// Called before the ordinary mapping table, because these names have no owner of their own:
+        /// a Longhorn document writes Dock or Left on a child and relies on the panel to interpret it.
+        /// </summary>
+        public static string ResolveAttached(string parentName, string attributeName)
+        {
+            if (string.IsNullOrEmpty(parentName) || string.IsNullOrEmpty(attributeName)) return null;
+
+            // the parent may be namespaced or a full CLR type name; reduce it to the short form
+            string parent = parentName;
+            int colon = parent.IndexOf(':');
+            if (colon >= 0) parent = parent.Substring(colon + 1);
+            int dot = parent.LastIndexOf('.');
+            if (dot >= 0) parent = parent.Substring(dot + 1);
+
+            string[] names;
+            if (!_panelAttached.TryGetValue(parent, out names)) return null;
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (string.Equals(names[i], attributeName, StringComparison.Ordinal))
+                {
+                    return parent + "." + attributeName;
+                }
+            }
+            return null;
         }
 
         /// <summary>
