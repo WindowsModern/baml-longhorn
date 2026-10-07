@@ -931,9 +931,18 @@ namespace BamlLonghorn.Gui
         }
 
         /// <summary>Re-applies the localised tab captions.</summary>
+        /// <summary>
+        /// Re-applies the localised tab captions.
+        ///
+        /// The key list must cover every tab. It previously carried six entries against seven
+        /// pages, so from index 2 onward each page took the next page's caption and the last page
+        /// kept whatever it was given at construction. A silent off-by-one, and the reason this
+        /// comment now names the three lists that have to agree: the AddTab calls in BuildTabs,
+        /// the key array in ApplyLanguage, and this one.
+        /// </summary>
         private void UpdateTabTitles()
         {
-            S[] keys = { S.TabSummary, S.TabXaml, S.TabRecords, S.TabTree,
+            S[] keys = { S.TabSummary, S.TabXaml, S.TabWpfXaml, S.TabRecords, S.TabTree,
                          S.TabTables, S.TabRecon };
             for (int i = 0; i < _tabs.TabPages.Count && i < keys.Length; i++)
             {
