@@ -97,8 +97,13 @@ namespace BamlLonghorn
             // ---- role exists, no direct equivalent, substitute with a comment --------
             new LhElementMapping("TextPanel", "TextBlock", LhMapKind.Substituted,
                 "Longhorn's text container maps to TextBlock"),
-            new LhElementMapping("Text", "Run", LhMapKind.Substituted,
-                "Longhorn's inline text run maps to Run"),
+            // Longhorn's Text is a container that holds a run of text, and the WPF type that plays
+            // that role is TextBlock. It was first mapped to Run, which is wrong in a way only a
+            // real parse reveals: a Run cannot hold content text directly, so
+            // <Run ID="x">Hello</Run> fails at load time with a constructor binding error, and a Run
+            // is only valid inside a text-bearing parent.
+            new LhElementMapping("Text", "TextBlock", LhMapKind.Substituted,
+                "Longhorn's text run maps to TextBlock, which can hold content text where Run cannot"),
             new LhElementMapping("FlowPanel", "WrapPanel", LhMapKind.Substituted,
                 "flow layout; WrapPanel approximates it but does not wrap identically"),
             new LhElementMapping("System.Windows.Controls.GridPanel", "Grid", LhMapKind.Substituted,
@@ -165,7 +170,9 @@ namespace BamlLonghorn
             return _byElement.TryGetValue(lhName, out m) ? m : null;
         }
 
-        /// <summary>Looks up an attribute rename for an element, owner-specific first.</summary>
+        /// <summary>
+        /// Looks up an attribute rename for an element, owner-specific first.
+        /// </summary>
         public static LhAttributeMapping FindAttribute(string owner, string lhName)
         {
             LhAttributeMapping generic = null;
@@ -177,6 +184,56 @@ namespace BamlLonghorn
                 if (string.Equals(m.Owner, owner, StringComparison.Ordinal)) return m;
             }
             return generic;
+        }
+
+        /// <summary>
+        /// True when a namespace URI is written with every slash doubled, which the 2005
+        /// generation's <c>XmlnsProperty</c> records do.
+        ///
+        /// Measured over the corpora rather than assumed. For the 2005 namespace the doubled form
+        /// occurs 193 times and the plain form twice, while the 2003 namespace, which appears 110
+        /// times, is never doubled. Collapsing each run of slashes to half its length turns the
+        /// doubled form into <c>http://schemas.microsoft.com/2005/xaml/</c> exactly -- the form
+        /// that also appears un-doubled in this corpus, which is what shows the plain URI is the
+        /// intended one and the doubling is an artefact of how this generation wrote the value.
+        ///
+        /// The correction is applied in the converter rather than the reader. The reader's job is to
+        /// report the bytes faithfully, and they really do contain the doubled form; deciding that
+        /// one spelling means the other is a judgement about intent, which is this layer's business.
+        /// </summary>
+        public static bool IsDoubledSlashUri(string value)
+        {
+            return !string.IsNullOrEmpty(value) && value.IndexOf("//", StringComparison.Ordinal) >= 0
+                   && value.IndexOf("////", StringComparison.Ordinal) >= 0;
+        }
+
+        /// <summary>
+        /// Rewrites a doubled-slash URI to its plain form by halving each run of slashes.
+        /// Returns the input unchanged when it is not doubled.
+        /// </summary>
+        public static string UndoubleSlashes(string value)
+        {
+            if (!IsDoubledSlashUri(value)) return value;
+
+            StringBuilder sb = new StringBuilder(value.Length);
+            int i = 0;
+            while (i < value.Length)
+            {
+                if (value[i] != '/')
+                {
+                    sb.Append(value[i]);
+                    i++;
+                    continue;
+                }
+                int j = i;
+                while (j < value.Length && value[j] == '/') j++;
+                int run = j - i;
+                int half = run / 2;
+                if (half < 1) half = 1;
+                sb.Append('/', half);
+                i = j;
+            }
+            return sb.ToString();
         }
     }
 }

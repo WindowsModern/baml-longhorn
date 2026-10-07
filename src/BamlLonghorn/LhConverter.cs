@@ -17,8 +17,22 @@ namespace BamlLonghorn
         /// <summary>Role substitutions applied, with counts.</summary>
         public readonly List<KeyValuePair<string, int>> Substituted = new List<KeyValuePair<string, int>>();
 
+        /// <summary>
+        /// Element names shortened from a full CLR type name to the short form WPF expects, such as
+        /// <c>System.Windows.Controls.Canvas</c> to <c>Canvas</c>. Reported apart from a rename
+        /// because it is not one: the type is unchanged and only its qualification is dropped.
+        /// </summary>
+        public readonly List<KeyValuePair<string, int>> Shortened = new List<KeyValuePair<string, int>>();
+
         /// <summary>Attribute renames applied, as "owner.attribute -> new".</summary>
         public readonly List<string> AttributeRenames = new List<string>();
+
+        /// <summary>
+        /// Namespace URIs that were normalised, as "before -> after". Recorded because the change is
+        /// not cosmetic: a doubled URI cannot be matched by an XML reader, so the document would fail
+        /// to load for a reason unrelated to the conversion.
+        /// </summary>
+        public readonly List<string> NamespaceFixes = new List<string>();
 
         public int ElementsSeen;
         public int AttributesSeen;
@@ -128,6 +142,24 @@ namespace BamlLonghorn
 
             string result = sb.ToString();
 
+            // Rewrite namespace declarations: collapse the doubled slashes the 2005 generation
+            // writes, and replace Longhorn's presentation namespace with the one WPF resolves
+            // against. Applied to the finished text rather than inside the tag pass so it covers
+            // every xmlns however it was introduced, and so the rule lives in one place.
+            if (result.IndexOf("xmlns", StringComparison.Ordinal) >= 0)
+            {
+                result = FixNamespaces(result, report);
+            }
+
+            // A document with no namespace declaration at all is equally unresolvable, and some
+            // samples are in exactly that state: HelloWorld declares nothing, so a WPF reader
+            // reports "cannot create unknown type Canvas". Adding the presentation namespace to the
+            // root element is the smallest fix, and it is recorded so the addition is visible.
+            if (result.IndexOf(WpfNamespace, StringComparison.Ordinal) < 0)
+            {
+                result = InjectDefaultNamespace(result, report);
+            }
+
             // add the lh prefix declaration beside the presentation namespace
             if (anyUnsupported)
             {
@@ -144,9 +176,139 @@ namespace BamlLonghorn
             return result;
         }
 
-        /// <summary>Finds the '&gt;' that closes a tag, skipping quoted attribute values.</summary>
-        private static int FindTagEnd(string s, int start)
+        /// <summary>
+        /// Rewrites namespace declarations so a WPF reader can resolve them.
+        ///
+        /// Two distinct problems are fixed here, and the second is the one that decides whether the
+        /// output can be loaded at all.
+        ///
+        /// The 2005 generation writes the presentation namespace with every slash doubled, and the
+        /// plain form of that URI appears in the same corpus, which identifies the plain form as
+        /// intended.
+        ///
+        /// More importantly, Longhorn's presentation namespace is not WPF's. A Longhorn document
+        /// declares <c>http://schemas.microsoft.com/2005/xaml/</c> (or the 2003 variant, or a
+        /// <c>using:</c> directive), and no current WPF reader resolves the unprefixed element names
+        /// against any of those -- it fails immediately with "cannot create unknown type Canvas".
+        /// The default namespace therefore has to become the presentation namespace that WPF expects,
+        /// and a prefix it may already use has to be removed so the two do not collide.
+        ///
+        /// PIMapping-derived prefixes such as <c>fullexp</c> are left alone: they map to CLR
+        /// namespaces of application types, not to WPF, and the elements that use them are marked
+        /// un-convertible anyway.
+        /// </summary>
+        private static string FixNamespaces(string text, LhConversionReport report)
         {
+            StringBuilder sb = new StringBuilder(text.Length);
+            int i = 0;
+            while (i < text.Length)
+            {
+                int at = text.IndexOf("xmlns", i, StringComparison.Ordinal);
+                if (at < 0)
+                {
+                    sb.Append(text, i, text.Length - i);
+                    break;
+                }
+                sb.Append(text, i, at - i);
+
+                int p = at;
+                while (p < text.Length && text[p] != '=' && text[p] != '>') p++;
+                string name = text.Substring(at, p - at);
+                sb.Append(name);
+                if (p >= text.Length || text[p] != '=')
+                {
+                    i = p;
+                    continue;
+                }
+                sb.Append('=');
+                p++;
+                while (p < text.Length && (text[p] == ' ' || text[p] == '\t'))
+                {
+                    sb.Append(text[p]);
+                    p++;
+                }
+                if (p >= text.Length || (text[p] != '"' && text[p] != '\''))
+                {
+                    i = p;
+                    continue;
+                }
+                char quote = text[p];
+                int close = text.IndexOf(quote, p + 1);
+                if (close < 0)
+                {
+                    sb.Append(text, p, text.Length - p);
+                    break;
+                }
+
+                string value = text.Substring(p + 1, close - p - 1);
+                string fixedValue = LhWpfMappings.UndoubleSlashes(value);
+
+                bool isDefault = string.Equals(name, "xmlns", StringComparison.Ordinal);
+                bool isLonghornPresentation =
+                    fixedValue.IndexOf("schemas.microsoft.com/2005/xaml", StringComparison.Ordinal) >= 0
+                    || fixedValue.IndexOf("schemas.microsoft.com/2003/xaml", StringComparison.Ordinal) >= 0
+                    || fixedValue.StartsWith("using:", StringComparison.Ordinal);
+
+                if (isDefault && isLonghornPresentation)
+                {
+                    report.NamespaceFixes.Add(fixedValue + " -> " + WpfNamespace
+                                              + "  (default namespace: Longhorn presentation to WPF)");
+                    fixedValue = WpfNamespace;
+                }
+                else if (!isDefault && isLonghornPresentation
+                         && string.Equals(name, "xmlns:x", StringComparison.Ordinal))
+                {
+                    // xmlns:x must remain the XAML language namespace; a Longhorn document that
+                    // reuses that prefix for a presentation namespace would shadow it
+                    report.NamespaceFixes.Add(fixedValue + " -> dropped from xmlns:x");
+                    fixedValue = XamlNamespace;
+                }
+                else if (!string.Equals(fixedValue, value, StringComparison.Ordinal))
+                {
+                    report.NamespaceFixes.Add(value + " -> " + fixedValue);
+                }
+
+                sb.Append(quote).Append(fixedValue).Append(quote);
+                i = close + 1;
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Adds the presentation namespace to the first element when the document declares none.
+        ///
+        /// Several samples carry no namespace declaration, so their element names have no namespace
+        /// and no WPF reader can resolve them. Injecting the declaration at the root is the minimal
+        /// change that makes the names resolvable, and it is reported rather than done quietly.
+        /// </summary>
+        private static string InjectDefaultNamespace(string text, LhConversionReport report)
+        {
+            // find the end of the first opening tag's name
+            int lt = text.IndexOf('<');
+            while (lt >= 0 && lt + 1 < text.Length
+                   && (text[lt + 1] == '!' || text[lt + 1] == '?'))
+            {
+                int skip = text.IndexOf('>', lt);
+                if (skip < 0) return text;
+                lt = text.IndexOf('<', skip);
+            }
+            if (lt < 0) return text;
+
+            int nameEnd = lt + 1;
+            while (nameEnd < text.Length && !char.IsWhiteSpace(text[nameEnd])
+                   && text[nameEnd] != '>' && text[nameEnd] != '/')
+            {
+                nameEnd++;
+            }
+
+            report.NamespaceFixes.Add("no namespace declared -> added xmlns=\"" + WpfNamespace + "\"");
+            return text.Substring(0, nameEnd)
+                   + " xmlns=\"" + WpfNamespace + "\""
+                   + text.Substring(nameEnd);
+        }
+
+        /// <summary>Finds the '&gt;' that closes a tag, skipping quoted attribute values.</summary>
+        private static int FindTagEnd(string s, int start)        {
             char quote = '\0';
             for (int i = start + 1; i < s.Length; i++)
             {
@@ -180,6 +342,31 @@ namespace BamlLonghorn
 
             string newName;
             string comment = null;
+
+            // Longhorn markup names elements by their full CLR type, so a document contains
+            // <System.Windows.Controls.Canvas> where WPF expects <Canvas>. This is the single change
+            // that most improves whether converted output loads at all: without it every dotted name
+            // is unresolvable and a WPF reader reports "cannot create unknown type" or "unknown
+            // member" for the file.
+            //
+            // The shortening is safe because it is the same type: only the namespace qualification
+            // is dropped, and it is applied only when the WPF type index confirms a type of that
+            // name, so an application type that happens to be dotted is not mangled.
+            if (map == null && rawName.IndexOf('.') >= 0)
+            {
+                string shortName = rawName.Substring(rawName.LastIndexOf('.') + 1);
+                if (WpfTypeIndex.Exists(rawName) || WpfTypeIndex.Exists(shortName))
+                {
+                    string shortened = shortName;
+                    LhConversionReport.Bump(report.Shortened, rawName + " -> " + shortened);
+                    // write it out and move to the next tag
+                    StringBuilder sbn = new StringBuilder();
+                    sbn.Append(closing ? "</" : "<").Append(shortened)
+                       .Append(tag, nameEnd, tag.Length - nameEnd);
+                    return sbn.ToString();
+                }
+            }
+
             if (map == null)
             {
                 // not listed: decide by whether WPF has the type at all. The mapping table only

@@ -19,6 +19,15 @@ namespace BamlLonghorn
     /// </summary>
     public static class BamlXamlWriter
     {
+        /// <summary>
+        /// Count of <c>DefAttribute</c> records dropped because their name was empty.
+        ///
+        /// Exposed rather than silently discarded: a bare <c>def:</c> prefix makes the document
+        /// unparseable, so the record cannot be emitted, but the loss should be visible to whoever
+        /// reads the output.
+        /// </summary>
+        public static int SkippedDefAttributes;
+
         /// <summary>The pre-release XAML namespace, as serialized by build 4074.</summary>
         public const string XamlNamespace = "http://schemas.microsoft.com/2005/xaml/";
 
@@ -339,10 +348,22 @@ namespace BamlLonghorn
                             {
                                 break;
                             }
-                            // DefAttribute carries Value then Name; Name is the def: key
-                            string key = "def:" + e.GetString("name", string.Empty);
+                            // DefAttribute carries Value then Name; Name is the def: key.
+                            //
+                            // A record whose name is empty would render as a bare "def:", which is an
+                            // unbound namespace prefix: no XML reader can parse the document, and this
+                            // is the most common reason converted output fails to load. The record
+                            // carries no usable name, so it is dropped and counted rather than emitted
+                            // broken.
+                            string defName = e.GetString("name", string.Empty);
+                            if (defName.Length == 0)
+                            {
+                                SkippedDefAttributes++;
+                                break;
+                            }
                             current.Attributes.Add(
-                                new KeyValuePair<string, string>(key, e.GetString("value", string.Empty)));
+                                new KeyValuePair<string, string>(
+                                    "def:" + defName, e.GetString("value", string.Empty)));
                             break;
                         }
 
