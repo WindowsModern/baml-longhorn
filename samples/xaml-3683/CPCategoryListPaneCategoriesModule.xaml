@@ -1,0 +1,6 @@
+<DockPanel xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters" Margin="16,16,16,16">
+
+    <Text ID="Header" Margin="0,0,0,12" Dock="Top" />
+    <GridPanel ID="Content" BorderThickness="0,0,0,0" Dock="Top" />
+
+</DockPanel>

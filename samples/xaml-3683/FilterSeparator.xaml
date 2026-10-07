@@ -1,0 +1,8 @@
+<Text
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  Dock="Left"
+  DockPanel.BoxStretch="None"
+  Margin="0,3,0,3"
+  VerticalAlign="Center"
+  Padding="0,0,0,0"> | </Text>
+

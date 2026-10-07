@@ -1,0 +1,39 @@
+<SVControlPanel:GCCategoryPane
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:SVControlPanel="using:ShellInterop#Microsoft.Windows.Client.Shell.View.ControlPanel">
+
+    <DockPanel ID="Background" Width="100%" Height="100%">
+        <Image ID="Watermark" VerticalAlign="Bottom" Dock="Right" />
+    </DockPanel>
+
+    <DockPanel ID="Foreground" Width="100%" Height="100%">
+        <DockPanel ID="Header" Height="40px" Padding="8,8,8,8" Background="HorizontalGradient #08000000 #00000000" Dock="Top">
+            <PropertySheet>
+                Text
+                {
+                    FontFamily="Arial"
+                    FontSize="10pt"
+                    Foreground="#000000"
+                }
+            </PropertySheet>
+            <Image ID="Icon" />
+            <Text ID="Text" Margin="8,5,0,0" />
+        </DockPanel>
+        <DockPanel ID="Content" Dock="Fill">
+            <PropertySheet>
+                Text[Element.ID="Header"]
+                {
+                    FontFamily="Franklin Gothic Book"
+                    FontSize="18pt"
+                }
+                Text
+                {
+                    FontFamily="Franklin Gothic Medium"
+                    FontSize="8.63pt"
+                    Foreground="#848484"
+                }
+            </PropertySheet>
+        </DockPanel>
+    </DockPanel>
+
+</SVControlPanel:GCCategoryPane>

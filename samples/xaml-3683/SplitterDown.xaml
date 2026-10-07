@@ -1,0 +1,13 @@
+<Canvas ID="SplitterDown"
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  Dock="Top" Width="100%" Height="100%" Background="#FFFFFF" Visibility="Collapsed">
+    <DockPanel Left="5%" Width="80%" Height="100%">
+        <Canvas Height="90%" Dock="Top" Background="VerticalGradient #00649CE6 #80649CE6" />
+        <Canvas Height="10%" Dock="Top" Background="VerticalGradient #80649CE6 #00649CE6" />
+    </DockPanel>
+    <DockPanel Left="5%" Width="80%" Height="100%">
+        <Canvas Width="50%" Dock="Left" Background="HorizontalGradient #FFFFFFFF #00FFFFFF" />
+        <Canvas Width="50%" Dock="Left" Background="HorizontalGradient #00FFFFFF #FFFFFFFF" />
+    </DockPanel>
+</Canvas>
+

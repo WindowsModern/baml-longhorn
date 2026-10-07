@@ -1,0 +1,36 @@
+<SVFind:GCFilterList
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:SVControls="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Controls"
+  xmlns:SVFind="using:ShellInterop#Microsoft.Windows.Client.Shell.View.SideBar.Find"
+  Presentation.Presenter="DockPresenter"
+  Margin="0,8,8,8" Width="100%">
+
+    <SVControls:GCButton ID="Header"
+      Presentation.Presenter="DockPresenter"
+      DockPanel.BoxStretch="None"
+      Margin="0,0,0,8"
+      Dock="Top">
+        <PropertySheet>
+            Text
+            {
+                FontFamily="Franklin Gothic Book"
+                FontSize="10pt"
+                Foreground="#629EE7"
+            }
+        </PropertySheet>
+        <Text ID="Text" Dock="Fill" VerticalAlign="Center" DockPresenter.BoxStretch="None"/>
+    </SVControls:GCButton>
+
+    <DockPanel ID="Content" Dock="Top">
+        <PropertySheet>
+            Text
+            {
+                FontFamily="Franklin Gothic Book"
+                FontSize="8.63pt"
+                Foreground="#848484"
+            }
+        </PropertySheet>
+    </DockPanel>
+
+</SVFind:GCFilterList>
+

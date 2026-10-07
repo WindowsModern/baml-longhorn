@@ -1,0 +1,75 @@
+<ShellViewPreview:GCPreviewFrame
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:ShellViewPreview="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Preview"
+  xmlns:ShellViewBar="using:ShellInterop#Microsoft.Windows.Client.Sidebar"
+  Presentation.Presenter="DockPresenter"
+  ID="PreviewFrame"
+  Height="100%"
+  Width="100%"
+  Padding="20px,20px,20px,12px">
+  
+    <PropertySheet>
+        Text[Element.ID="IteratorText"]
+        {
+            TextPresenter.FontSize="8pt"
+            TextPresenter.Foreground="#649CE6"
+        }
+        
+        Text[Element.ID="Title"]
+        {
+            TextPresenter.FontSize="14pt"
+            TextPresenter.Foreground="#649CE6"
+            Presenter.Padding="0,0,10,4"
+        }
+        
+        ShellViewPreview:GCPreviewButton[Element.ID="PreviewBack"]
+        {
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PreviewBack"
+        }
+        
+        ShellViewPreview:GCPreviewButton[Element.ID="PreviewNext"]
+        {
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PreviewNext"
+        }
+
+        ShellViewPreview:GCPreviewButton[Element.ID="PreviewBack"][PointerFocused="true"]
+        {
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PreviewBackHover"
+        }
+        
+        ShellViewPreview:GCPreviewButton[Element.ID="PreviewNext"][PointerFocused="true"]
+        {
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PreviewNextHover"
+        }
+
+        ShellViewPreview:GCPreviewButton[Element.ID="PreviewBack"][ButtonBase.Pressed="true"]
+        {
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PreviewBackPressed"
+        }
+        
+        ShellViewPreview:GCPreviewButton[Element.ID="PreviewNext"][ButtonBase.Pressed="true"]
+        {
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PreviewNextPressed"
+        }
+
+    </PropertySheet>
+
+    <DockPanel Dock="Top">
+        <DockPanel Dock="Right">
+            <ShellViewPreview:GCPreviewButton ID="PreviewBack" Presentation.Presenter="ShellViewBar:ImageResourcePresenter" ShellViewBar:ImageResource.SizingMode="2" Dock="Left"/>
+            
+            <!-- width of text between iterator buttons must be fixed to maintain consistent positioning -->
+            <Text ID="IteratorText" Dock="Left" Width="50px" VerticalAlign="Center" TextPresenter.TextAlign="Center" DockPanel.BoxStretch="None"/>
+            
+            <ShellViewPreview:GCPreviewButton ID="PreviewNext" Presentation.Presenter="ShellViewBar:ImageResourcePresenter" ShellViewBar:ImageResource.SizingMode="2" Dock="Left"/>
+        </DockPanel>
+
+        <DropDownList DockPresenter.BoxStretch="None" Margin="0,0,15,0" ID="ChooserDropDown" Dock="Right" Visibility="Collapsed"/>
+        
+        <Text ID="Title" Dock="Fill" DockPresenter.BoxStretch="None" />
+    </DockPanel>
+    
+    <DockPanel ID="PreviewBaseHost" Dock="Fill" />
+        
+</ShellViewPreview:GCPreviewFrame>
+

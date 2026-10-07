@@ -1,0 +1,31 @@
+<ShellViewPreview:GCMyPicturesWelcomePane
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:ShellViewBar="using:ShellInterop#Microsoft.Windows.Client.Sidebar"
+  xmlns:ShellViewPreview="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Preview">
+
+    <PropertySheet>
+        Text[Element.ID="Placeholder"]
+        {
+            TextPresenter.FontFamily="Verdana"
+            TextPresenter.FontSize="8pt"
+            TextPresenter.Foreground="#649CE6"
+        }
+    </PropertySheet>
+
+    <!-- todo: the graphics from the designers include all the padding, so the top/left coords here aren't too useful. -->
+    <Element CanvasPresenter.Top="0%" CanvasPresenter.Left="0%" Presentation.Presenter="ShellViewBar:ImageResourcePresenter"
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/Swoosh" ShellViewBar:ImageResource.SizingMode="2"/>
+    <Element CanvasPresenter.Bottom="100%" CanvasPresenter.Left="0%" Presentation.Presenter="ShellViewBar:ImageResourcePresenter"
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PicturesIntro" ShellViewBar:ImageResource.SizingMode="2"/>
+    <Element CanvasPresenter.Top="10%" CanvasPresenter.Left="30%" Presentation.Presenter="ShellViewBar:ImageResourcePresenter"
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/PicturesText" ShellViewBar:ImageResource.SizingMode="2"/>
+    <Element CanvasPresenter.Top="50%" CanvasPresenter.Left="30%" Presentation.Presenter="ShellViewBar:ImageResourcePresenter"
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/DVDButton" ShellViewBar:ImageResource.SizingMode="2"/>
+    <Element CanvasPresenter.Top="50%" CanvasPresenter.Left="50%" Presentation.Presenter="ShellViewBar:ImageResourcePresenter"
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/AlbumButton" ShellViewBar:ImageResource.SizingMode="2"/>
+    <Element CanvasPresenter.Top="50%" CanvasPresenter.Left="70%" Presentation.Presenter="ShellViewBar:ImageResourcePresenter"
+            ShellViewBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/SlideshowButton" ShellViewBar:ImageResource.SizingMode="2"/>
+    <Text ID="Placeholder" CanvasPresenter.Top="0%" CanvasPresenter.Left="0%">(placeholder)</Text>
+
+</ShellViewPreview:GCMyPicturesWelcomePane>
+

@@ -1,0 +1,23 @@
+<SVControlPanel:GCCategoryListPane
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:SVControlPanel="using:ShellInterop#Microsoft.Windows.Client.Shell.View.ControlPanel">
+
+    <PropertySheet>
+        Text[Element.ID="Header"]
+        {
+            FontFamily="Franklin Gothic Book"
+            FontSize="18pt"
+        }
+        Text
+        {
+            FontFamily="Franklin Gothic Medium"
+            FontSize="8.63pt"
+            Foreground="#848484"
+        }
+    </PropertySheet>
+    <DockPanel ID="Background" Width="100%" Height="100%">
+        <Image ID="Watermark" VerticalAlign="Bottom" Dock="Right" />
+    </DockPanel>
+    <DockPanel ID="Content" Width="100%" Height="100%" />
+
+</SVControlPanel:GCCategoryListPane>

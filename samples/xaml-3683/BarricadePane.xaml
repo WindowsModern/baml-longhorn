@@ -1,0 +1,36 @@
+<Control
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:AvStartBar="using:ShellInterop#Microsoft.Windows.Client.Sidebar"
+  Presentation.Presenter="AvStartBar:FillPresenter"
+  Width="100%"
+  Height="100%">
+  
+    <Control
+     Presentation.Presenter="AvStartBar:ImageResourcePresenter"
+     AvStartBar:ImageResource.URI="res://Microsoft.Windows.Client/LocalResources/ClockBackground"
+     AvStartBar:ImageResource.SizingMode="2"
+     AvStartBar:ImageResource.HAlign="2"
+     AvStartBar:ImageResource.VAlign="2" />
+    <DockPanel Margin="12,12,12,12">
+        <PropertySheet>
+            Text
+            {
+                FontFamily="Franklin Gothic Book"
+                FontSize="12pt"
+                Foreground="#848484"
+            }
+        </PropertySheet>
+        <DockPanel Dock="Top" Margin="8,8,8,8">
+            <PropertySheet>
+                Text
+                {
+                    FontSize="16pt"
+                }
+            </PropertySheet>
+            <Text>These files are </Text><Text FontFamily="Franklin Gothic Medium">hidden.</Text>
+        </DockPanel>
+        <Text Dock="Top" Margin="8,8,8,8">This folder contains files that keep your system working properly.  You should not modify its contents.</Text>
+    </DockPanel>
+
+</Control>
+

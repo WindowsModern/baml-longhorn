@@ -1,0 +1,36 @@
+<SVSideBar:GCModule
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:SVControls="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Controls"
+  xmlns:SVSideBar="using:ShellInterop#Microsoft.Windows.Client.Shell.View.SideBar"
+  Presentation.Presenter="DockPresenter"
+  Margin="8,8,8,8">
+
+    <SVControls:GCButton ID="Header"
+      Presentation.Presenter="DockPresenter"
+      DockPanel.BoxStretch="None"
+      Margin="0,0,0,8"
+      Dock="Top">
+        <PropertySheet>
+            Text
+            {
+                FontFamily="Franklin Gothic Book"
+                FontSize="12pt"
+                Foreground="#629EE7"
+            }
+        </PropertySheet>
+        <Image ID="Icon" Dock="Left" VerticalAlign="Center" DockPresenter.BoxStretch="None" />
+        <Text ID="Text" Dock="Fill" VerticalAlign="Center" DockPresenter.BoxStretch="None" Margin="8,0,0,0" />
+    </SVControls:GCButton>
+
+    <DockPanel ID="Content" Dock="Top">
+        <PropertySheet>
+            Text
+            {
+                FontFamily="Franklin Gothic Book"
+                FontSize="8.63pt"
+                Foreground="#848484"
+            }
+        </PropertySheet>
+    </DockPanel>
+
+</SVSideBar:GCModule>

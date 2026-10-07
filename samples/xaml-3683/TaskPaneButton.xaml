@@ -1,0 +1,12 @@
+<SVEnhancements:TaskPaneButton
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Media;System.Windows.Presenters"
+  xmlns:SVEnhancements="using:Microsoft.Windows.Client.Shell#Microsoft.Windows.Client.Shell.Experiences.Enhancements"
+  Presentation.Presenter="DockPresenter"
+  DockPanel.BoxStretch="None"
+  Margin="0,3,0,3"
+  Dock="Top">
+
+    <Image ID="Icon" Dock="Left" VerticalAlign="Center" DockPanel.BoxStretch="None" />
+    <Text ID="Text" Dock="Fill" VerticalAlign="Center" DockPanel.BoxStretch="None" Margin="8,0,0,0" />
+
+</SVEnhancements:TaskPaneButton>

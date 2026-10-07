@@ -1,0 +1,25 @@
+<DockPanel
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:ShellStartPage="using:ShellInterop#Microsoft.Windows.Client.ShellStartPage"
+  Background="White"
+  ID="StartPageElement"
+  Height="100%"
+  Width="100%">
+  
+  <GridPanel Background="white">
+    <Column Width="33%"/>
+    <Column Width="33%"/>
+    <Column Width="33%"/>	    
+    <Row Height="25%">
+        <DockPanel ID="PromotionsTile" GridPanel.ColumnSpan="3">
+        </DockPanel>
+    </Row>        
+    <Row Height="75%">
+        <Text ID="EMailTilePlaceHolder" Background="#FFFF0000">E-Mail</Text>
+        <Text ID="CalendarPlaceHolder" Background="#FF00FF00">Calendar</Text>
+        <Text ID="QuickLaunchPlaceHolder" Background="#FF0000FF">Quicklaunch</Text>
+    </Row>
+</GridPanel>
+
+</DockPanel>
+

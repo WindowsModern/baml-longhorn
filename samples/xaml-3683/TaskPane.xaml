@@ -1,0 +1,7 @@
+<SVEnhancements:TaskPane
+  xmlns="using:System.Windows.Presenters"
+  xmlns:SVEnhancements="using:Microsoft.Windows.Client.Shell#Microsoft.Windows.Client.Shell.Experiences.Enhancements"
+  Presentation.Presenter="DockPresenter"
+  Presenter.Background="#FFFF00"
+  Presenter.Width="100%"
+  Presenter.Height="100%" />

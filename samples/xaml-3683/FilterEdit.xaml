@@ -1,0 +1,25 @@
+<ShellViewControls:GCFilterEdit
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:ShellViewControls="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Controls"
+  xmlns:ShellViewSideBar="using:ShellInterop#Microsoft.Windows.Client.Shell.View.SideBar"
+  Presentation.Presenter="DockPresenter"
+  Margin="0,0,8,8">
+
+    <PropertySheet>
+        Text
+        {
+            FontFamily="Arial"
+            FontSize="8pt"
+            Foreground="#808080"
+        }
+        TextBox
+        {
+            FontFamily="Arial"
+            FontSize="12pt"
+        }
+    </PropertySheet>
+
+    <!-- ive been completely unsuccessful in getting this to size right with a padding/margin.  ill talk to oleg or somebody. -->
+    <TextBox ID="Filter" Width="100%" Dock="Fill" />
+
+</ShellViewControls:GCFilterEdit>

@@ -1,0 +1,5 @@
+<FlowPanel xmlns="using:System;System.Windows;System.Windows.Controls"
+    Background="LightBlue">
+    <Button Height="100px" >Clicky</Button>
+    <TextPanel Foreground="White" FontFamily="Trebuchet MS" FontSize="72pt">Hello, world!</TextPanel>
+</FlowPanel>

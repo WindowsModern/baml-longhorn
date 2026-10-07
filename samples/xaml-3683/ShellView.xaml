@@ -1,0 +1,20 @@
+<Canvas
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:ShellViewControls="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Controls"
+  Height="100%"
+  Width="100%"
+  Background="#FF0000">
+
+    <FlowPanel ID="Background" Width="100%" Height="100%">
+        <Canvas Width="100%" Height="20%" Background="#FFFFFF"/>
+        <Canvas Width="100%" Height="80%" Background="VerticalGradient #FFFFFF #C5D4E7"/>
+    </FlowPanel>
+
+    <DockPanel ID="Content" Width="100%" Height="100%">
+        <Canvas ID="TaskPaneContainer" Width="200px" Margin="8,8,8,8" Dock="Left" Visibility="Collapsed" />
+        <Canvas ID="PreviewPaneContainer" Height="250px" Dock="Top" Visibility="Collapsed" />
+        <ShellViewControls:PreviewSplitter Presentation.Presenter="DockPresenter" Height="7px" ID="PreviewSplitter" Dock="Top" Visibility="Collapsed"/>
+        <Canvas ID="ListviewPaneContainer" Dock="Fill" />
+    </DockPanel>
+
+</Canvas>

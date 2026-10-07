@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="BamlLonghorn.Gui" />
+
+  <!--
+    Common Controls version 6.0.
+
+    Without this the process binds to comctl32 5.x and every control renders in the
+    pre-XP style regardless of Application.EnableVisualStyles(): visual styles are
+    only available when the assembly declares the 6.0 dependency. The versioned
+    subdirectory name "6.0.0.0" is matched as a prefix, so 6.0 is what is requested
+    here.
+  -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+          type="win32"
+          name="Microsoft.Windows.Common-Controls"
+          version="6.0.0.0"
+          processorArchitecture="*"
+          publicKeyToken="6595b64144ccf1df"
+          language="*" />
+    </dependentAssembly>
+  </dependency>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <!-- asInvoker: a decompiler has no reason to want elevation -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <!--
+      High DPI.
+
+      Windows 10 1703+ honours <dpiAwareness> and understands PerMonitorV2;
+      Vista..8.1 only understands <dpiAware>. Both are declared, with the newer
+      element first, so the same binary behaves correctly across the range.
+
+      PerMonitorV2 is requested rather than plain true because the GUI is mostly
+      text panes: it should re-lay-out when dragged between monitors of different
+      scale instead of being bitmap-stretched.
+    -->
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor, System</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+
+  <!-- Windows 7 and 8 do not infer DPI awareness from the application element alone -->
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{e2011457-1546-43c5-a5fe-008deee3d3f0}" /><!-- Vista -->
+      <supportedOS Id="{35138b9a-5d96-4fbd-8e2d-a2440225f93a}" /><!-- 7 -->
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}" /><!-- 8 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}" /><!-- 8.1 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" /><!-- 10 / 11 -->
+    </application>
+  </compatibility>
+</assembly>

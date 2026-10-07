@@ -1,0 +1,52 @@
+<ShellViewPreview:GCPreviewManager
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:ShellViewPreview="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Preview">
+  
+    <PropertySheet>
+        Element
+        {
+            TextPresenter.FontFamily="Verdana"
+        }
+                
+        Text[Element.ID="Group"]
+        {
+            TextPresenter.FontSize="10pt"
+            TextPresenter.FontWeight="700"
+            TextPresenter.Foreground="#649CE6"
+            Presenter.Padding="0,4,0,4"
+        }
+
+        Text[Element.ID="MetadataTitle"]
+        {
+            TextPresenter.FontWeight="700"
+            TextPresenter.Foreground="#666666"
+            Presenter.Padding="0,0,12,0"
+        }
+        
+        Text[Element.ID="Edit"]
+        {
+            TextPresenter.Foreground="#E66C00"
+        }
+        
+        Text[Element.ID="NoEdit"]
+        {
+            TextPresenter.Foreground="#666666"
+        }
+        
+        ShellViewPreview:GCPreviewMetadataRow
+        {
+            GridPresenter.TableDisplay="Row"
+            TextPresenter.FontSize="8pt"
+        }
+        
+    </PropertySheet>
+
+    <!-- why the heck doesnt horizontal align work -->
+    <Element DockPresenter.HorizontalAlign="Center" DockPresenter.Dock="Fill" DockPresenter.BoxStretch="None" ID="PreviewPane" Presentation.Presenter="ShellViewPreview:PreviewPresenter">
+        <DockPanel ID="PreviewElementHost"/>
+        
+        <ShellViewPreview:GCPreviewMetadata ID="PreviewMetadata" Padding="12px,0,0,0" Dock="Top"/>
+    </Element>
+
+</ShellViewPreview:GCPreviewManager>
+

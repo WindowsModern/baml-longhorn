@@ -1,0 +1,46 @@
+# Build output
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.mdb
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Except the sample executables that ship as test fixtures. The patterns above would
+# otherwise exclude the .exe files that are part of the reference archives.
+!samples/**/*.exe
+!samples/**/*.dll
+
+# Visual Studio
+.vs/
+*.VC.db
+*.VC.VC.opendb
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+
+# MSBuild
+*.log
+msbuild.log
+msbuild.err
+msbuild.wrn
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Local scratch
+Temp/
+_probe/

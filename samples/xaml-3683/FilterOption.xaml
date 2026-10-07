@@ -1,0 +1,11 @@
+<SVFind:GCOptionButton
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:SVFind="using:ShellInterop#Microsoft.Windows.Client.Shell.View.SideBar.Find"
+  Presentation.Presenter="DockPresenter"
+  DockPanel.BoxStretch="None"
+  Margin="0,3,0,3">
+
+    <Text ID="Text" Dock="Left" VerticalAlign="Center" DockPanel.BoxStretch="None" Margin="0,0,0,0" />
+
+</SVFind:GCOptionButton>
+

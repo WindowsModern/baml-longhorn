@@ -1,0 +1,10 @@
+<SVControls:GCIconAndTextButton
+  xmlns="using:System.Windows;System.Windows.Controls;System.Windows.Documents;System.Windows.Shapes;System.Windows.Media;System.Windows.Presenters"
+  xmlns:SVControls="using:ShellInterop#Microsoft.Windows.Client.Shell.View.Controls"
+  Presentation.Presenter="DockPresenter"
+  DockPanel.BoxStretch="None" >
+
+    <Image ID="Icon" Dock="Left" VerticalAlign="Center" DockPanel.BoxStretch="None" />
+    <Text ID="Text" Dock="Fill" VerticalAlign="Center" DockPanel.BoxStretch="None" Margin="8,0,0,0" />
+
+</SVControls:GCIconAndTextButton>
