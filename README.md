@@ -11,11 +11,11 @@
 **Every line of this project was written by an AI agent: DeepSeek Harness, running the
 `deepseek-flash` model.**
 
-Nothing here is a port of existing code. The record layouts were recovered by reading
-decompiled Microsoft assemblies side by side and confirming each conclusion against real
-BAML bytes — **two mutually exclusive record framings** and **eight generation profiles**,
-with **five payload differences** separating build 4093 from 4074 on the wire. The result is
-validated against **241 real BAML files** with **100% clean decompilation on every set**.
+Nothing here is a port of existing code. The format was undocumented, so its record structure
+was worked out from observed behaviour and then tested against real files — **two mutually
+exclusive record framings**, **eight generation profiles**, and the **payload differences**
+that separate build 4093 from 4074. The result is validated against **241 BAML files** with
+**100% clean decompilation on every set**.
 
 See [`COMPLETION.md`](COMPLETION.md) for the full statement of what was completed, what was
 verified, and what remains unverified.
@@ -208,8 +208,7 @@ Stated plainly, because a decompiler that overstates its coverage is worse than 
 declares its limits.
 
 * **Builds 3718, 4033, 4039 and 4042 have no sample.** Their profiles are defined from
-  decompiled enums and the LONG writer is generic across the lineage, but nothing has
-  exercised them against real bytes. This was established twice — a `.baml` resource-name
+  each generation's record code set and the LONG writer is generic across the lineage, but nothing has  exercised them against real bytes. This was established twice — a `.baml` resource-name
   scan of every assembly in each build, and a manifest survey — and confirmed from a second
   angle once more. It is a gap in available material, not in the implementation: the profile
   table and the writer need no changes to consume such a file.

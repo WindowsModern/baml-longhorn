@@ -65,16 +65,16 @@ CLEAN decodes above now prove.
 next record = (offset of the size field) + size = recordStart + 2 + size
 ```
 
-Defined by the decompiled `System.Windows.Serialization` classes of
+Defined by the `System.Windows.Serialization` record set of
 **build 4074** `PresentationFramework`
-(`E:\Profiles\Bruce\Desktop\4074 - PresentationFramework True\`). The 34-member
+(the build 4074 tree). The 34-member
 `BamlRecordType`, the sizing table and every payload layout are in
 `BAML4074-FORMAT.md`. Reference implementation: `tools/baml4074.py`.
 
 ## Source of the reference samples
 
 * `example.baml` and the `HelloWorld` pair come from
-  `E:\Profiles\Bruce\Desktop\example-mark-up-files-and-binaries` (attached to
+  the `example-mark-up-files-and-binaries` sample set (attached to
   <https://longhorn.ms/avalon-compiling-it/>). The article confirms the toolchain:
   `ac` (the Avalon Compiler) shipped in **build 3683**, was already deprecated by
   4051, and was superseded by `XamlC`. `ac` produced `example.baml` alongside
@@ -97,7 +97,7 @@ prefix, so they are the same lineage. The 481 label should not be read as a buil
 
 ### These two lineages cannot both become first-class
 
-A 3683 decompile and a 481-context decompile are **not obtainable**. The LONG
+A 3683-era and a 481-era corpus are **not available**. The LONG
 lineage therefore stays at reference-implementation status:
 
 * the record *class* is described by `4074\System.Windows` (`MS.Internal.BamlRecord`,

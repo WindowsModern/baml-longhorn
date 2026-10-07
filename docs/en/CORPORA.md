@@ -8,10 +8,10 @@ out, so the search does not have to be repeated.
 
 | folder | files | source | notes |
 |---|---|---|---|
-| `samples\xaml` | 103 | `反编译\4074\Microsoft.Windows.WCPClient\Microsoft.Windows.WCPClient.g.resx` | the primary 4074 corpus; 192,327 bytes |
-| `samples\wcp4093` | **133** | `反编译\4093\Microsoft.Windows.WCPClient\Microsoft.Windows.WCPClient.g.resx` | the 4093 corpus; **101 filenames are shared with the 4074 set** |
-| `samples\extracted-4093` | 5 | `反编译\4093\PresentationFramework\…g.resx` (1) + `PresentationUI\…g.resx` (4) | includes a 51,684-byte theme dictionary |
-| `samples\xaml-3683` | **32** | `反编译\3683\Microsoft.Windows.Client\LocalResources.resx` | **source XAML text**, not BAML |
+| `samples\xaml` | 103 | `Microsoft.Windows.WCPClient.g.resx`, build 4074 tree | the primary 4074 corpus; 192,327 bytes |
+| `samples\wcp4093` | **133** | `Microsoft.Windows.WCPClient.g.resx`, build 4093 tree | the 4093 corpus; **101 filenames are shared with the 4074 set** |
+| `samples\extracted-4093` | 5 | `PresentationFramework.g.resx` (1) + `PresentationUI.g.resx` (4), both build 4093 tree | includes a 51,684-byte theme dictionary |
+| `samples\xaml-3683` | **32** | `LocalResources.resx`, build 3683 tree | **source XAML text**, not BAML |
 | `samples\reference` | 5 | the `4047 BAML` collection | LONG-family samples plus a source/binary pair |
 
 ## Tools
@@ -58,14 +58,14 @@ pattern `[int64 size][int16 type]` matches ordinary PE data constantly (`size=98
 nearly every assembly), producing more false positives than signal. A four-byte alignment
 guess like that cannot replace the resource-name test.
 
-So the LONG profiles for 3718/4033/4039/4042 are **defined from the decompiled enums but
+So the LONG profiles for 3718/4033/4039/4042 are **defined from each generation's record codes but
 have no sample**: they can be selected and they will parse, but nothing has exercised them
 against real bytes. `example.baml` (3683) and `481.baml` (4015) remain the only LONG
 samples.
 
 ## Build 3683 is the source-XAML era
 
-`反编译\3683\Microsoft.Windows.Client\LocalResources.resx` (765,077 bytes) holds **32 XAML
+The build 3683 `LocalResources.resx` (765,077 bytes) holds **32 XAML
 documents as text**, not compiled BAML, and `Microsoft.Windows.Client.dll` embeds the same
 32 under names like `ShellView.xaml`. That makes 3683 useful as **ground truth for what
 Avalon-era markup looked like**, and not as a BAML corpus.

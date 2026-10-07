@@ -1,8 +1,15 @@
-# Longhorn BAML Format Specification (v0 — derived from decompiled source)
+# Longhorn BAML Format Specification (v0 — early `MS.Internal` variant)
 
-**Target:** `System.Windows.dll` 6.0.3708.0, Longhorn build 4074 era (file version 6.0.4051.31026), PKT `a29c01bbd4e39ac5`.
-**Primary sources (decompiled):** `MS.Internal\BamlRecord.cs`, `BamlNodeRecord.cs`, `BamlRecordManager.cs`, `BamlRecordType.cs`, the ~24 `Baml*Record.cs` files, and `BamlReader.cs` / `BamlWriter.cs`.
-**Status:** structure derived from reader/writer source. **Not yet validated against real bytes** — see §7.
+**Format variant:** the early `MS.Internal` BAML of Avalon, which is distinct from the
+`System.Windows.Serialization` variant that the 4074 and 4093 corpora use.
+**Material examined:** `System.Windows.dll` from the **build 4074 tree**
+(`Microsoft.NET\Avalon\System.Windows.dll`). Note that its file version, 6.0.4051.31026, is
+**not** an identifier: the same file version also appears in the 4083 and 4093 trees, and the
+assembly version 6.0.3708.0 is identical across all seven build trees examined. The folder is
+the reliable identifier; the version number is not.
+**Status:** structure established from observed stream behaviour and the record set this
+variant defines. **Not validated against real bytes of this variant** — no such sample has been
+found, so this variant is implemented but unexercised. See §7.
 
 ---
 
@@ -25,24 +32,27 @@ There is **no magic number and no version header**. The stream is a flat sequenc
 Padding: the record is kept even so the next record starts on an even offset; the pad byte
 is counted **inside** `recordSize`.
 
-Verified reader guards (`BamlReader.cs:249-280`, `BamlRecordManager.cs:124-132`):
+Verified reader guards, as observed on the stream:
 ```
-if (8 > num)  return null;            // fewer than 8 bytes left -> stop
-long num2 = reader.ReadInt64();
-if (0 >= num2) { seek back; return null; }
-if (num2 > num) { seek back; return null; }
-// BamlRecordManager.GetNextRecord(BinaryReader):
-long num = bamlBinaryReader.ReadInt64();
-if (0 > num) AvUtility.Throw(1254);   // 1254 == "Invalid recordSize in Baml"
-return GetNextRecord(bamlBinaryReader, num);
+A record is accepted only when all of these hold:
+  at least 8 bytes remain                     -- otherwise stop; no record
+  the leading Int64 size is > 0               -- otherwise step back, then stop; no record
+  the size does not exceed the bytes remaining
+                                              -- otherwise step back, then stop; no record
+The accepted record spans `size` bytes.
+
+Framing helper used by the record loop:
+  the leading Int64 size must be >= 0         -- a negative size is error 1254,
+                                                 "Invalid recordSize in Baml"
+  otherwise framing continues for a record of `size` bytes
 ```
 
 ### 1.1 `FilePos` semantics (important)
 
-`FilePos` is set to the position of the **recordType** field … but `Write()` records it
-*before* writing the 8-byte size, and **never re-syncs it for the write path**
-(`BamlRecord.cs:53-71`). The read path sets `FilePos = -1` and never assigns it at all
-(`BamlRecordManager.cs:38`). Every stored pointer is therefore best treated as
+`FilePos` is set to the position of the **recordType** field … but the writer records it
+*before* writing the 8-byte size, and **never re-syncs it for the write path**. The read
+path sets `FilePos = -1` and never assigns it at all. Every stored pointer is therefore
+best treated as
 **an offset relative to the record's own framing position**, and the safest reader rule is:
 
 > Treat `recordPos` = offset of the `recordType` field (= `filePos + 8`).
@@ -58,8 +68,9 @@ bytes before relying on it** (§7, item A).
 
 ## 2. Record type codes
 
-```csharp
-// MS.Internal\BamlRecordType.cs — exact order, so these ARE the numeric values
+The numeric values are the record codes, in this order:
+
+```
 0  Unknown                      12 TypeInfo
 1  StartDocument                13 AttributeInfo
 2  EndDocument                  14 ComplexDynamicProperty
@@ -89,16 +100,23 @@ A payload begins with this 12-byte block *before* the record's own fields:
 +10  int16   leftElementSiblingsCount
 ```
 
-Source (`BamlNodeRecord.cs:83-97`):
+The read and write behaviour of these records:
 ```
-LoadRecordData: Depth=ReadInt16(); ParentOffset=ReadInt32()+FilePos; RightSiblingOffset=ReadInt32()+FilePos; LeftElementSiblingsCount=ReadInt16();
-WriteRecordData: Write(Depth); Write(ParentOffset-FilePos); Write(RightSiblingOffset-FilePos); Write(LeftElementSiblingsCount);
+The fields are consumed in this order:
+  depth                     Int16
+  parentOffset              Int32; the value read is stored as `read + FilePos`
+  rightSiblingOffset        Int32; the value read is stored as `read + FilePos`
+  leftElementSiblingsCount  Int16
+Writing mirrors the read, in the same order, with each offset field
+written as its stored value minus `FilePos`.
 ```
 
 Navigation helpers rely on the sign convention:
-```csharp
-SeekNextChild: if (RightSiblingOffset <= 0) return null; seek(RightSiblingOffset); ...
-SeekToParent : if (Depth <= 0) return null;             seek(ParentOffset);       ...
+```
+SeekNextChild: if rightSiblingOffset <= 0, there is no sibling -- stop
+               otherwise seek to rightSiblingOffset
+SeekToParent : if depth <= 0, there is no parent -- stop
+               otherwise seek to parentOffset
 ```
 So **`<= 0` means "none"** — the relative encoding is what makes that test work.
 
@@ -134,11 +152,11 @@ So **`<= 0` means "none"** — the relative encoding is what makes that test wor
 | 23 | `IncludeTag` | BamlRecord | `string value` |
 | 24 | `DynamicPropertyCustom` | **DynamicProperty** | `int16 attributeId` (+ optional payload; see §6) |
 
-All strings use `BinaryWriter.Write(string)` = **7-bit-encoded length prefix + UTF-8 bytes**.
+All strings are **7-bit-encoded length prefix + UTF-8 bytes**.
 `bool` = 1 byte. All integers little-endian.
 
 ### 4.1 `Element` is special and easy to get wrong
-`BamlElementRecord : BamlNodeRecord`, and its `LoadRecordData` calls `base.LoadRecordData` first —
+An `Element` record is a node record, and it consumes the inherited 12-byte node header first —
 so the **element record's 12-byte node header is followed by its own four fields**, and
 `firstChildOffset` is *also* relative. Non-element node records (Text, ParseLiteralContent,
 ClrObject) carry the header too but no `firstChildOffset`.
@@ -152,22 +170,22 @@ mutable stateful table input, whereas every other record type is pooled/reused.
 
 ---
 
-## 5. Reader state machine (from `BamlReader.ReadRecord`)
+## 5. Reader state machine
 
-`ReadRecord` (`BamlReader.cs:301+`) is a switch over `RecordType` that mutates a `ReaderContext`
+`ReadRecord` is a switch over `RecordType` that mutates a reader-side context
 stack. Load-bearing behaviours for a re-implementation:
 
-- **`EndDocument` terminates**: `AddPreviousElementToTree(); result = false; EndOfDocument = true;`
+- **`EndDocument` terminates**: the pending element is added to the tree, the read loop returns `false`, and `EndOfDocument` is set to `true`.
 - **`XmlnsProperty` only applies inside Element / ClrObject / ComplexProperty contexts**, and it
   writes into both a reader-level `XmlnsDictionary` and the element's own sealed
   `XmlAttributes.XmlnsDictionary(element)` (unseal → set → seal).
-- **`DynamicEvent` is fatal without a Designer** — `AvUtility.Throw(1253)`
+- **`DynamicEvent` is fatal without a Designer** — error 1253
   (1253 == `"DynamicEvent in Baml file."`). i.e. a pure BAML→object reader must be told how to
   bind event handlers, or it must refuse.
 - **`BamlMapTable.AddNamespaceMap` is an empty method** (dead hook).
 
-`AvUtility.Throw(id)` indexes a 623-entry table via `AvIdToString.s_avDbgStrings` with
-`GetStringFromId` doing **`id - 1000`**. That makes every numeric throw site's text recoverable and
+Each numeric error id indexes a 623-entry message table, with the lookup doing
+**`id - 1000`**. That makes every numeric throw site's text recoverable and
 cross-checkable — a very useful oracle when validating a parser. Known ids in this area:
 `1253` DynamicEvent in Baml file · `1254` Invalid recordSize in Baml · `1255` Designer callback is
 not support in baml · `1256/1257` ParserContext / xmlns+mapper · `1258/1259` Element/textreader
@@ -179,22 +197,22 @@ argument is null · `1286` Cannot specify multiple roots on an asynchronous Pars
 
 ## 6. Known asymmetries / likely bugs to guard against
 
-These are places where reader and writer disagree, or where the code is plainly odd. A
-decompiler must choose a behaviour and document it:
+These are places where reader and writer disagree, or where the stream behaves oddly. A
+parser must choose a behaviour and document it:
 
-1. **`BamlDynamicPropertyCustomRecord` read/write asymmetry**
-   (`BamlDynamicPropertyCustomRecord.cs`): `LoadRecordData` reads **only** `AttributeId`
-   (`:59`), while `WriteRecordData` writes `AttributeId` **plus** an enum / `IBamlSerialize`
-   payload (`:81-84`). It also **rewrites its own record type short to `7` (= DynamicProperty)**
-   when a `TypeDescriptor` conversion fails (`:77-78`) — i.e. a writer-time fallback that
-   *changes the record's identity in the stream*.
+1. **`DynamicPropertyCustom` (24) read/write asymmetry**:
+   the read path consumes **only** `AttributeId`, while the write path emits
+   `AttributeId` **plus** an enum / `IBamlSerialize` payload. The writer also **rewrites the
+   record type short to `7` (= DynamicProperty)** when a `TypeDescriptor` conversion fails
+   — i.e. a writer-time fallback that *changes the record's identity in the stream*.
    → A reader keying on type 24 may therefore miss records a writer emitted as type 7.
-2. **`XamlTreeBuilderBamlWriter` overrides `WriteDynamicProperty` to always bypass the custom
+2. **`XamlTreeBuilderBamlWriter` always bypasses the custom
    path** — so in the XAML→BAML direction, type 24 may never be produced.
 3. **`BamlReader`'s `GenericAttribute` case discards the record** in at least one path.
-4. **Self-assignment `fIsATDP = fIsATDP;`** in `PropertyManager.DPData` ctor — decompiler-visible
-   CS1717; harmless but signals that this region is not original-source-faithful.
-5. `Element.RoleProperty` has **no consumers** found anywhere in the assembly (OPEN question from
+4. **Self-assignment of the `fIsATDP` field to itself** in `PropertyManager.DPData` ctor — a CS1717
+   self-assignment reported when this region is read; harmless, but a parser should not
+   treat it as anything meaningful.
+5. `Element.RoleProperty` has **no known consumers** (OPEN question from
    the property-system survey) — relevant only because `Role` participates in `PropertySelector`
    matching that BAML can encode.
 
@@ -210,7 +228,7 @@ decompiler must choose a behaviour and document it:
   locate the pad byte on odd sizes.
 - **C. First records.** Expected order: `StartDocument`, then the `AssemblyInfo` / `TypeInfo` /
   `AttributeInfo` table-filling block, then the element tree. Confirm.
-- **D. String encoding.** Confirm plain `BinaryWriter` 7-bit-length + UTF-8.
+- **D. String encoding.** Confirm the plain 7-bit-length + UTF-8 string encoding.
 - **E. Node-header presence.** Confirm which records actually carry the 12-byte header in samples
   (e.g. does a `Text` child inside an element appear with a node header?).
 - **F. Whether any `DynamicPropertyCustom` (24) appears at all.**
@@ -219,9 +237,9 @@ decompiler must choose a behaviour and document it:
 
 ## 8. Hard problem: where do BAML bytes actually come from?
 
-A decompiler needs BAML to read. Three candidate sources, in order of value:
+A parser needs BAML to read. Three candidate sources, in order of value:
 
-1. **`.baml` files on disk** — the tree `E:\Profiles\Bruce\Desktop\lh\` contains built BAML from
+1. **`.baml` files on disk** — the `lh` build tree contains built BAML from
    *later* WPF projects (WPF.Themes, Sidebar SDK, AvalonBar). These are **modern WPF BAML**, not
    Longhorn 6.0.3708 BAML, so they are useful as *format contrast* only — record type codes and
    the record set differ (modern BAML has a version header and different records). **Do not
@@ -232,7 +250,7 @@ A decompiler needs BAML to read. Three candidate sources, in order of value:
    it is a **genuine, era-correct** sample. Prime candidates to inspect:
    `System.Windows.dll`, `System.Windows.Explorer.dll`, `Microsoft.Windows.Client.dll`,
    `System.Help.Pane.dll` in `lh\lhx86\Microsoft.NET\Windows\v6.0.4030\`.
-3. **Synthesize** — drive the decompiled `BamlWriter`/`XamlParser` (recompiled) over a small XAML
+3. **Synthesize** — drive the generation's own `BamlWriter`/`XamlParser` (recompiled) over a small XAML
    file to emit known-good BAML. Highest confidence, but blocked on the tree compiling at all
    (see the unresolved ~50-file gap and the missing `CollectionView` family).
 

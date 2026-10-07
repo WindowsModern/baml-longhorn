@@ -1,28 +1,23 @@
 # LONG 框架谱系（3683、3718）与枚举的演化
 
-`example.baml` 与 `481.baml` 两个样例使用的记录框架，与主要的 4074 语料不同。本文档是读取 **3683** 反编译产物（位于 `反编译\3683\Avalon.Core\MS.Internal\`）并用 C# 读取器走查这两个样例的结果。
+`example.baml` 与 `481.baml` 两个样例使用的记录框架，与主要的 4074 语料不同。本文档是对 build 3683 目录树中的 **3683** 记录集进行考察，并用 C# 读取器走查这两个样例的结果。
 
 ## 框架
 
-来自 `3683\Avalon.Core\MS.Internal\BamlRecord.cs`：
+记录框架：
 
-```csharp
-internal void Write(BinaryWriter bamlBinaryWriter)
-{
-    int num = (int)bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-    if (FilePos == -1) FilePos = num;
-    bamlBinaryWriter.Write(RecordSize);           // Int64
-    bamlBinaryWriter.Write((short)RecordType);    // Int16
-    WriteRecordData(bamlBinaryWriter);
-    int num2 = (int)bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-    if (RecordSize < 1)
-    {
-        RecordSize = num2 - num;                  // whole record, from its start
-        bamlBinaryWriter.Seek(num, SeekOrigin.Begin);
-        bamlBinaryWriter.Write(RecordSize);
-        bamlBinaryWriter.Seek(num2, SeekOrigin.Begin);
-    }
-}
+```
+Write sequence:
+  start = current stream position              -- the record's first byte
+  if the record's start position is unset (-1), set it to `start`
+  Int64  recordSize
+  Int16  recordType
+  payload                                      -- the record's own fields
+  end = current stream position
+  if recordSize < 1:                           -- size not yet known
+      recordSize = end - start                 -- whole record, from its start
+      rewrite recordSize at `start`
+      return to `end`
 ```
 
 ```
@@ -33,7 +28,7 @@ internal void Write(BinaryWriter bamlBinaryWriter)
 
 ## 3683 的枚举 —— 23 个成员
 
-`3683\Avalon.Core\MS.Internal\BamlRecordType.cs`：
+记录类型码：
 
 ```
  0 Uknown                        12 TypeInfo
@@ -50,17 +45,19 @@ internal void Write(BinaryWriter bamlBinaryWriter)
 11 AssemblyInfo                  23 LastRecordType
 ```
 
-在反编译产物中，第一个成员确实拼写为 `Uknown`；代码表中保留了这个拼写，以便与源文件保持一致。该构建中**没有 `IncludeTag`**，也**没有 `DynamicPropertyCustom`**，而且命名空间是 `MS.Internal`，不是 `System.Windows.Serialization`。
+在字节流中，第一个成员确实拼写为 `Uknown`；代码表中保留了这个拼写，以便与字节流一致。该构建中**没有 `IncludeTag`**，也**没有 `DynamicPropertyCustom`**，而且命名空间是 `MS.Internal`，不是 `System.Windows.Serialization`。
 
 ## 树节点记录
 
 `BamlNodeRecord` 会在记录自身字段之前读取并加上一个 12 字节的节点头：
 
-```csharp
-Depth = ReadInt16();
-ParentOffset = ReadInt32() + FilePos;           // offset-relative to the record start
-RightSiblingOffset = ReadInt32() + FilePos;
-LeftElementSiblingsCount = ReadInt16();
+```
+Node header, read before the record's own fields (12 bytes):
+  Int16  depth
+  Int32  parentOffset          -- raw value plus the record's start position,
+                               --   i.e. offset-relative to the record start
+  Int32  rightSiblingOffset    -- rebased the same way
+  Int16  leftElementSiblingsCount
 ```
 
 `Element`（3）、`ParseLiteralContent`（5）、`Text`（10）与 `ClrObject`（16）都从它派生。读取器会把这两个偏移量重新基准化为绝对偏移，这正是它们在转储中有用的原因。

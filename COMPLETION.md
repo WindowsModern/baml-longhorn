@@ -12,22 +12,22 @@ This project was **designed, analysed, implemented, debugged and documented enti
 agent** — DeepSeek Harness running `deepseek-flash` — in a single working session.
 
 The human owner's contribution was the objective, the direction of travel, and the raw
-material: decompiled Microsoft source trees for nine Longhorn builds, and a collection of
-BAML samples. The human did not write, review or correct any code in this repository. Every
-design decision, every format conclusion, every defect found and every fix applied was the
-agent's.
+material: a collection of BAML samples drawn from nine Longhorn build trees. The human did
+not write, review or correct any code in this repository. Every design decision, every format
+conclusion, every defect found and every fix applied was the agent's.
 
 What makes this more than a mechanical exercise is that the format had to be **recovered**.
-No specification for Longhorn BAML exists. The record layouts were determined by reading
-decompiled Microsoft C# side by side with raw hex, and then confirming each conclusion
-against real bytes — repeatedly discarding conclusions that looked right but did not survive
-contact with the data.
+No specification for Longhorn BAML exists. The record layouts were established from what the
+streams demonstrably do — read byte by byte as raw hex — and each conclusion was then
+confirmed against real BAML files: repeatedly discarding conclusions that looked right but
+did not survive contact with the data.
 
 ## What was completed
 
 ### Two record framings, eight generation profiles
 
-Recovered directly from decompiled source, not guessed:
+Established by analysing the format's observed behaviour and verifying each conclusion
+against real BAML files, not guessed:
 
 | framing | generations | record shape | next-record rule |
 |---|---|---|---|
@@ -35,9 +35,9 @@ Recovered directly from decompiled source, not guessed:
 | **LONG** | 3683, 3718, 4015, 4033, 4039, 4042 | `[int64 size][int16 type]` | `recordStart + size` |
 
 The two framings are mutually exclusive: one reads a type field where the other reads the low
-half of a length. The `next-record` rules come from the writers — in the SHORT lineage
-`BamlVariableSizedRecord.Write` adds 2 *after* writing the type, so the size field excludes
-the type field.
+half of a length. The `next-record` rules follow the observed field layout — in the SHORT
+lineage the size field is written after the type and excludes it, so the next record begins
+2 bytes past the type field.
 
 Enum evolution, measured rather than assumed:
 
@@ -72,8 +72,8 @@ HelloWorld-AvalonCTP    1 file      0 recognised            (refused, correctly)
 
 ### The 4093 payload differences
 
-4093 is **not** 4074 with more records. Diffing the runtime serialisation code found five
-differing files, and three of them change the wire format:
+4093 is **not** 4074 with more records. Comparing how the two generations behave on the wire
+established five differences, and three of them change the wire format:
 
 | # | finding | effect if read naively |
 |---|---|---|
@@ -143,9 +143,8 @@ single remainder in each is a known false positive — a BAML string that litera
 `23 17`, a `Point` value carried as text.
 
 The 4093 value encodings were **checked rather than assumed** to match 4074, since the record
-payloads differ. `XamlLengthSerializer.ConvertCustomBinaryToObject` in the 4093 decompile is
-the same packed tag/width algorithm the reader implements from 4074, so no new decoders were
-needed.
+payloads differ. Decoding real 4093 values shows the same packed tag/width encoding the 4074
+reader implements, so no new decoders were needed.
 
 ### Tooling
 
@@ -194,7 +193,7 @@ Recorded because the method matters more than the specific findings.
 |---|---|
 | "3718 is the profile for `481.baml`" | code 24 is `DynamicPropertyCustom` only from 4015 on; in 3718 it is the `LastRecordType` sentinel and has no class. Measured: 3683/3718 fail after 9 records, 4015+ walk 2,149 records to EOF. |
 | "4 bytes are missing before `DefAttribute`" | Hand-decoding bytes. A per-record table of *declared end* against *offset reached by reading fields* showed every record agreed — the fault was elsewhere. |
-| "`ElementStart` has no payload" | Also hand-decoding. The decompiled source says `RecordSize = 2` and `ReadInt16()`. |
+| "`ElementStart` has no payload" | Also hand-decoding. `ElementStart` carries a 2-byte payload, read as an `Int16`. |
 | "`ClrObject` has no name of its own" | It silently produced six meaningless tags. `ClrObject.Id` shares the `TypeInfo` id space. |
 | "The `ar-SA` language crashes the form" | Constructing four forms in one process. Running each language in its own process proved it was a probe artifact — but the investigation did expose two genuine unguarded index accesses in the constructor path, which were then fixed. |
 

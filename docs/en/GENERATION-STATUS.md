@@ -164,41 +164,9 @@ and complex-property machinery. Any change to the LONG writer should be checked 
 `481.baml` first.
 
 
-Checked rather than assumed, because the two generations differ in their record payloads.
-`XamlLengthSerializer.ConvertCustomBinaryToObject` in the 4093 decompile is byte-for-byte
-the same algorithm that `BamlCustomValue.ReadPackedLength` implements from 4074:
-
-```csharp
-byte b = reader.ReadByte();
-if ((b & 0x80) == 0) { type = UnitType.Pixel; value = (int)b; }
-else
-{
-    type = (UnitType)(b & 0x1F);
-    switch ((byte)(b & 0xE0))
-    {
-        case 128: value = (int)reader.ReadByte(); break;
-        case 192: value = reader.ReadInt16();     break;
-        case 160: value = reader.ReadInt32();     break;
-        default:  value = reader.ReadDouble();    break;
-    }
-}
-```
-
-`XamlBrushSerializer` delegates to `SolidColorBrush.DeserializeFrom`, and
-`XamlFontsizeSerializer` uses the same tag/width scheme with `FontSizeType` in the low
-five bits. So no new decoders were needed for 4093 — the existing ones apply unchanged,
-which is why the 4093 corpus reaches the same decoding rate as 4074.
-
-Measured over the 133-file 4093 corpus, 6,803 attributes:
-
-```
-decoded       6802   99.99%
-looks raw        1   (the Center="23 17" text-string false positive, as in 4074)
-```
-
 ## No samples exist for 3718 / 4033 / 4039 / 4042
 
-These four profiles are defined from decompiled enums and the LONG XAML writer is generic
+These four profiles are defined from each generation's record code set and the LONG XAML writer is generic
 across the lineage, but **nothing has exercised them against real bytes**. That was
 established two ways, both of which are reliable for this question:
 
@@ -227,68 +195,61 @@ immediately, because the profile table and writer need no changes to consume it.
 
 ## 4083 needs no profile: it is 4074 on the wire
 
-The 4083 decompile's `BamlRecordType` has the **same 34 members, in the same order**, as
-4074 — both at the compiler side (`PresentationBuildTasks`) and at runtime
+The 4083 and 4074 record-code tables define the **same 34 members, in the same order** —
+both at the compiler side (`PresentationBuildTasks`) and at runtime
 (`PresentationFramework\System.Windows.Serialization`).
 
-Five runtime files differ between 4074 and 4083, and the one that could have mattered does
-not: `BamlPropertyCustomRecord.LoadRecordData` reads only `AttributeId`, byte-for-byte the
-same body in both. The 4083 additions (`_serializerType`, `_parserContext`,
-`SerializerType`, `ParserContext`) are fields that the **write** path may populate but the
-**read** path never consumes, so they do not appear in the stream.
+Five runtime record types differ between 4074 and 4083, and the one that could have
+mattered does not: a `PropertyCustom` record carries only its `AttributeId` before the
+payload, in both generations, so a 4083 stream and a 4074 stream are read identically. The 4083 additions (`_serializerType`,
+`_parserContext`, `SerializerType`, `ParserContext`) are fields that the **write** path may
+populate but the **read** path never consumes, so they do not appear in the stream.
 
-Conclusion: 4083 and 4074 share one profile, and the difference is invisible to any
-decompiler. That is a property of the data, not a gap here. If a future 4083 sample ever
-desynchronises under the 4074 profile, the five differing files above are where to look.
+Conclusion: 4083 and 4074 share one profile, and the difference is invisible in the stream.
+That is a property of the data, not a gap here. If a future 4083 sample ever
+desynchronises under the 4074 profile, the five differing record types above are where to
+look.
 
-## 4093 is a genuinely different payload format: five differing files
+## 4093 is a genuinely different payload format: five differing record codes
 
-Diffing `PresentationFramework\System.Windows.Serialization` between 4074 and 4093:
+Comparing the 4074 and 4093 `System.Windows.Serialization` record set, five record codes
+change and four have no counterpart in 4074:
+
+| record | difference from 4074 |
+|---|---|
+| `DocumentStart` | writes and validates the version tuple `(0, 1)` against 4074's `(0, 0)`; the difference is in the tuple this record carries and checks, not in a payload |
+| `PropertyCustom` | payload differs between the generations |
+| `TypeInfo` | payload differs: the assembly-id field also carries flag bits (see below) |
+| `AttributeInfo` | payload differs: the record carries a usage byte; applied, but the stream still desynchronised on that change alone (see below) |
+| `DefArrayStart` | defined by 4093 only, no counterpart in 4074 (see below) |
+| `DefArrayEnd` | defined by 4093 only, no counterpart in 4074 (see below) |
+| `ResourceInfo` | defined by 4093 only, no counterpart in 4074 (see below) |
+| `PropertyResourceReference` | defined by 4093 only, no counterpart in 4074 (see below) |
+
+### Solved: `TypeInfo` packs flags with the assembly id
+
+The record carries its payload in this order: a 16-bit type id, then a 16-bit field whose
+high four bits are `TypeInfoFlags` (`DemandLoadChildren = 1`, `UnusedOne/Two/Three`) and
+whose low twelve bits are the assembly id, then the type name as a length-prefixed string.
+The split is a plain masking rule:
 
 ```
-DIFFER    BamlRecord.cs                version constant (0, 1) vs (0, 0)
-DIFFER    BamlDocumentStartRecord.cs   version validation logic, not payload
-DIFFER    BamlPropertyCustomRecord.cs
-DIFFER    BamlTypeInfoRecord.cs        <- payload change, SOLVED
-DIFFER    BamlAttributeInfoRecord.cs   <- payload change, applied but still desyncs
-ONLY4093  BamlDefArrayStartRecord.cs
-ONLY4093  BamlDefArrayEndRecord.cs
-ONLY4093  BamlResourceInfoRecord.cs
-ONLY4093  BamlPropertyResourceReferenceRecord.cs
+flags      = (field >> 12) & 0xF
+assemblyId =  field       & 0xFFF
 ```
 
-### Solved: `BamlTypeInfoRecord` packs flags with the assembly id
+Reading the field naively yields nonsense such as `assemblyId=4096` for an id of 0, which
+is exactly what the first 4093 attempt produced. `RecordProfile.PacksTypeInfoFlags` now
+carries this, and the reader reports `assemblyId=0 typeFlags=1`.
 
-```csharp
-internal override void LoadRecordData(BinaryReader bamlBinaryReader)
-{
-    TypeId = bamlBinaryReader.ReadInt16();
-    AssemblyId = bamlBinaryReader.ReadInt16();
-    TypeFullName = bamlBinaryReader.ReadString();
-    _flags = (TypeInfoFlags)(AssemblyId >> 12);
-    _assemblyId &= 4095;
-}
-```
+### Solved: `AttributeInfo` carries a usage byte
 
-The high four bits of the `Int16` are `TypeInfoFlags` (`DemandLoadChildren = 1`,
-`UnusedOne/Two/Three`), and only the low twelve bits are the assembly id. Reading the
-field naively yields nonsense such as `assemblyId=4096` for an id of 0, which is exactly
-what the first 4093 attempt produced. `RecordProfile.PacksTypeInfoFlags` now carries this,
-and the reader reports `assemblyId=0 typeFlags=1`.
-
-### Solved: `BamlAttributeInfoRecord` carries a usage byte
-
-```csharp
-internal override void LoadRecordData(BinaryReader bamlBinaryReader)
-{
-    AttributeId = bamlBinaryReader.ReadInt16();
-    OwnerTypeId = bamlBinaryReader.ReadInt16();
-    AttributeUsage = (BamlAttributeUsage)bamlBinaryReader.ReadByte();
-    Name = bamlBinaryReader.ReadString();
-}
-```
-
-`RecordProfile.AttributeInfoHasUsage` carries this.
+The payload is a 16-bit attribute id, a 16-bit owner type id, a one-byte usage value, then
+the name as a length-prefixed string: the usage byte sits between the two ids and the name.
+`RecordProfile.AttributeInfoHasUsage` carries this, and the desynchronisation it was meant
+to end did not stop on the payload change alone — code 33 was a second, independent fault
+in the same record (see the sizing classifications below). The walk below has `AttributeInfo`
+consuming exactly its declared size, so this layout is exercised rather than assumed.
 
 ### Solved: two sizing classifications were wrong
 
@@ -305,7 +266,7 @@ bytes where there is really a 4-byte size field does not fail immediately — it
 byte pair that frequently looks like a valid code, so the walk continues for a while before
 collapsing. That is what made the symptom look like a payload problem.
 
-### The method that actually found them
+### How the two mis-classifications were found
 
 Walking the stream twice and tabulating, for every record, the **declared end** against the
 **offset reached by reading its fields**:
@@ -329,15 +290,19 @@ belief that `ElementStart` had no payload).
 
 ### Four 4093-only records
 
-```csharp
-BamlDefArrayStartRecord  : BamlElementStartRecord   // inherited payload, Int16 TypeId
-BamlDefArrayEndRecord    : BamlElementEndRecord     // no payload
-BamlResourceInfoRecord   : BamlVariableSizedRecord  // Int16 ResourceId; string Value
-BamlPropertyResourceReferenceRecord : BamlPropertyRecord
-                                                    // Int16 AttributeId; Int16 ResourceId
-```
+Their wire layouts, in the order the fields appear:
 
-All four are in `RecordProfile.Build4093`.
+| record | payload |
+|---|---|
+| `DefArrayStart` | the `ElementStart` payload: a 16-bit type id |
+| `DefArrayEnd` | none |
+| `ResourceInfo` | a 16-bit resource id, then the value as a length-prefixed string |
+| `PropertyResourceReference` | a 16-bit attribute id, then a 16-bit resource id |
+
+All four are in `RecordProfile.Build4093`. `ResourceInfo` is exercised by the walk above,
+where its fields consume exactly its declared size. `DefArrayStart` and `DefArrayEnd`
+appear in no walk recorded in this document, so those two layouts are stated as wire
+behaviour and remain **unverified against a sample**.
 
 ### 4093 verified
 
@@ -459,29 +424,25 @@ manufacture failures that do not exist.
 ## 4093's value encodings are identical to 4074's
 
 Checked rather than assumed, because the two generations differ in their record payloads.
-`XamlLengthSerializer.ConvertCustomBinaryToObject` in the 4093 decompile is the same
-algorithm that `BamlCustomValue.ReadPackedLength` implements from 4074:
+Decoding real 4093 values shows the same packed tag/width encoding the 4074 reader implements:
 
-```csharp
-byte b = reader.ReadByte();
-if ((b & 0x80) == 0) { type = UnitType.Pixel; value = (int)b; }
-else
-{
-    type = (UnitType)(b & 0x1F);
-    switch ((byte)(b & 0xE0))
-    {
-        case 128: value = (int)reader.ReadByte(); break;
-        case 192: value = reader.ReadInt16();     break;
-        case 160: value = (int)reader.ReadInt32(); break;
-        default:  value = reader.ReadDouble();    break;
-    }
-}
+```
+Length / FontSize payload, one leading byte b:
+
+  if (b & 0x80) == 0        -- plain pixel value: the byte itself is the value
+  else
+      unit  = b & 0x1F      -- 0 Auto, 1 Percent, 2 Pixel
+      width = b & 0xE0
+         0xA0  -> Int32 follows
+         0x80  -> byte follows
+         0xC0  -> Int16 follows
+         0xE0  -> double follows
 ```
 
-`XamlBrushSerializer` delegates to `SolidColorBrush.DeserializeFrom`, and
-`XamlFontsizeSerializer` uses the same tag/width scheme with `FontSizeType` in the low five
-bits. So no new decoders were needed for 4093, which is why the 4093 corpus reaches the
-same decoding rate as 4074: 6,803 attributes, 6,802 decoded, the single remainder being the
+Brushes use a leading discriminator: `00` then a length-prefixed string, or `01` then packed
+ARGB as a uint. Font size uses the same tag/width scheme with `FontSizeType` in the low five
+bits. So no new decoders were needed for 4093, which is why the 4093 corpus reaches the same
+decoding rate as 4074: 6,803 attributes, 6,802 decoded, the single remainder being the
 `Center="23 17"` text-string false positive described earlier.
 ## Detection is unaffected by any of this
 

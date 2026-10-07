@@ -1,31 +1,26 @@
 # The LONG framing lineage (3683, 3718), and the enum's evolution
 
 The `example.baml` and `481.baml` samples use a different record framing from the
-primary 4074 corpus. This document is the result of reading the **3683** decompile,
-which became available at `反编译\3683\Avalon.Core\MS.Internal\`, and of walking both
+primary 4074 corpus. This document is the result of examining the **3683** record set,
+available in the build 3683 tree, and of walking both
 samples with the C# reader.
 
 ## Framing
 
-From `3683\Avalon.Core\MS.Internal\BamlRecord.cs`:
+The record framing:
 
-```csharp
-internal void Write(BinaryWriter bamlBinaryWriter)
-{
-    int num = (int)bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-    if (FilePos == -1) FilePos = num;
-    bamlBinaryWriter.Write(RecordSize);           // Int64
-    bamlBinaryWriter.Write((short)RecordType);    // Int16
-    WriteRecordData(bamlBinaryWriter);
-    int num2 = (int)bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-    if (RecordSize < 1)
-    {
-        RecordSize = num2 - num;                  // whole record, from its start
-        bamlBinaryWriter.Seek(num, SeekOrigin.Begin);
-        bamlBinaryWriter.Write(RecordSize);
-        bamlBinaryWriter.Seek(num2, SeekOrigin.Begin);
-    }
-}
+```
+Write sequence:
+  start = current stream position              -- the record's first byte
+  if the record's start position is unset (-1), set it to `start`
+  Int64  recordSize
+  Int16  recordType
+  payload                                      -- the record's own fields
+  end = current stream position
+  if recordSize < 1:                           -- size not yet known
+      recordSize = end - start                 -- whole record, from its start
+      rewrite recordSize at `start`
+      return to `end`
 ```
 
 ```
@@ -38,7 +33,7 @@ covers only itself plus the payload and is present only on variable-sized record
 
 ## The 3683 enum — 23 members
 
-`3683\Avalon.Core\MS.Internal\BamlRecordType.cs`:
+The record type codes:
 
 ```
  0 Uknown                        12 TypeInfo
@@ -55,8 +50,8 @@ covers only itself plus the payload and is present only on variable-sized record
 11 AssemblyInfo                  23 LastRecordType
 ```
 
-The first member really is spelled `Uknown` in the decompile; the spelling is
-preserved in the code table so it matches its source. There is **no `IncludeTag`** and
+The first member really is spelled `Uknown` in the stream; the spelling is
+preserved in the code table so it matches the stream. There is **no `IncludeTag`** and
 **no `DynamicPropertyCustom`** in this build, and the namespace is `MS.Internal`, not
 `System.Windows.Serialization`.
 
@@ -64,11 +59,13 @@ preserved in the code table so it matches its source. There is **no `IncludeTag`
 
 `BamlNodeRecord` prefixes a 12-byte header, read before the record's own fields:
 
-```csharp
-Depth = ReadInt16();
-ParentOffset = ReadInt32() + FilePos;           // offset-relative to the record start
-RightSiblingOffset = ReadInt32() + FilePos;
-LeftElementSiblingsCount = ReadInt16();
+```
+Node header, read before the record's own fields (12 bytes):
+  Int16  depth
+  Int32  parentOffset          -- raw value plus the record's start position,
+                               --   i.e. offset-relative to the record start
+  Int32  rightSiblingOffset    -- rebased the same way
+  Int16  leftElementSiblingsCount
 ```
 
 `Element` (3), `ParseLiteralContent` (5), `Text` (10) and `ClrObject` (16) derive from

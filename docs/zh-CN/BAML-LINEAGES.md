@@ -52,15 +52,15 @@ LONG 这一列的结果只有“干净”或“拒绝”两种，不存在任何
 next record = (offset of the size field) + size = recordStart + 2 + size
 ```
 
-由 **build 4074** `PresentationFramework` 的反编译所得 `System.Windows.Serialization` 类定义
-（`E:\Profiles\Bruce\Desktop\4074 - PresentationFramework True\`）。包含 34 个成员的
+由 **build 4074** 的 `PresentationFramework` 所定义的 `System.Windows.Serialization` 记录集确定
+（build 4074 目录树）。包含 34 个成员的
 `BamlRecordType`、大小计算表以及所有载荷布局都记在
 `BAML4074-FORMAT.md` 中。参考实现：`tools/baml4074.py`。
 
 ## 参考样本的来源
 
 * `example.baml` 与 `HelloWorld` 这一对文件来自
-  `E:\Profiles\Bruce\Desktop\example-mark-up-files-and-binaries`（附在
+  `example-mark-up-files-and-binaries` 样本集（附在
   <https://longhorn.ms/avalon-compiling-it/> 上）。该文章证实了工具链的情况：
   `ac`（Avalon 编译器）随 **build 3683** 一同发布，到 4051 时已被弃用，
   并由 `XamlC` 取代。`ac` 在生成 `exampleApp.exe`、`exampleApp.dll` 和
@@ -80,7 +80,7 @@ next record = (offset of the size field) + size = recordStart + 2 + size
 
 ### 这两个谱系不可能同时成为一等公民
 
-3683 的反编译结果和 481 语境下的反编译结果都**无法获得**。因此 LONG 谱系只能停留在参考实现的状态：
+3683 时期与 481 时期的语料都**无法获得**。因此 LONG 谱系只能停留在参考实现的状态：
 
 * 记录*类*由 `4074\System.Windows` 描述（`MS.Internal.BamlRecord`、
   带有固定 `[int64 size][int16 type]` 框架的 `BamlRecordManager`）

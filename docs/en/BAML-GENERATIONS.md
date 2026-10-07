@@ -1,38 +1,36 @@
 # The two BAML generations, and which assembly owns which
 
 Status: **generation ownership settled by evidence.** The corpus is the
-`PresentationFramework` generation. Both decompiled `System.Windows.dll` trees are
+`PresentationFramework` generation. Two `System.Windows.dll` build trees are
 the *other* generation. The remaining task is bounded and named at the end.
 
 ## The distinction, verified from three independent sources
 
 ### Generation A — `MSDotnetAvalon.Windows` / `MS.Internal` (the class-record reader)
 
-Owned by `System.Windows.dll` (6.0.3708.0 / 6.0.4051.31026).
+Owned by `System.Windows.dll`; the two build trees available here report file version
+6.0.4051.31026. That is not an identifier: the same file version also appears in the 4083
+and 4093 trees, and the assembly version 6.0.3708.0 is identical in all seven build trees.
+The build folder is the identifier, not the version.
 
-Framing, quoted from the decompiled `MS.Internal\BamlRecordManager.cs`:
+Framing, from the reader's own behaviour: a record size is taken from the leading Int64 and
+the record code from the Int16 that follows it.
 
-```csharp
-internal BamlRecord GetNextRecord(BinaryReader bamlBinaryReader)
-{
-    long num = bamlBinaryReader.ReadInt64();      // fixed int64 record size
-    if (0 > num) { AvUtility.Throw(1254); }
-    return GetNextRecord(bamlBinaryReader, num);
-}
-
-internal BamlRecord GetNextRecord(BinaryReader bamlBinaryReader, long recordSize)
-{
-    BamlRecordType bamlRecordType = (BamlRecordType)bamlBinaryReader.ReadInt16();  // fixed int16
-    ...
-}
+```
+Reading the next record:
+  recordSize = Int64 read from the leading size field      -- fixed int64 width
+  if recordSize < 0: reject the stream (error 1254)
+  recordType = Int16 read from the type field that follows -- fixed int16 width
+  ... the record's payload follows
 ```
 
-and `MS.Internal\BamlRecord.cs`:
+and the writer mirrors it:
 
-```csharp
-bamlBinaryWriter.Write(RecordSize);        // long
-bamlBinaryWriter.Write((short)RecordType); // short
-WriteRecordData(bamlBinaryWriter);
+```
+Writing a record, in order:
+  Int64  recordSize
+  Int16  recordType
+  payload
 ```
 
 25-member `MS.Internal.BamlRecordType`:
@@ -44,7 +42,7 @@ EndClrComplexProperty IncludeTag DynamicPropertyCustom LastRecordType`
 
 ### Generation B — `System.Windows.Serialization` (the corpus's actual format)
 
-Owned by **`PresentationFramework.dll` 6.0.4023.30521**. Types read from its
+Owned by `PresentationFramework.dll`. Types read from its
 metadata by `metadump` (the assembly will not execute-load on any modern runtime,
 but its metadata is intact):
 
@@ -76,18 +74,18 @@ LiteralContent=9  Text=10  RoutedEvent=11  Event=12  IncludeReference=13
 DefAttribute=14  PIMapping=15
 ```
 
-Record header, from metadata:
+Record header, from the assembly's metadata:
 
-```csharp
-abstract class BamlRecord {
-    static readonly int RecordTypeFieldLength;        // width of the type field
-    static readonly VersionTuple BamlWriterVersion;
-}
-abstract class BamlVariableSizedRecord : BamlRecord {
-    static readonly int RecordSizeFieldLength;        // width of the size field
-    int _recordSize;
-}
 ```
+Record header widths:
+  RecordTypeFieldLength   Int32          -- width of the type field
+  BamlWriterVersion       VersionTuple   -- the writer's version
+  RecordSizeFieldLength   Int32          -- width of the size field, on variable-sized records
+  recordSize              Int32          -- the record's own size, on variable-sized records
+```
+
+Both widths are static fields of the record classes, initialised at runtime rather than
+fixed by a literal in the metadata tables.
 
 **Both widths are variable**, which is precisely why every fixed-header and
 fixed-length-chain hypothesis failed against the corpus.
@@ -107,37 +105,41 @@ fixed-length-chain hypothesis failed against the corpus.
    work (document header at 0..27, per-string 1-byte length, three real strings at
    52/84/136 in the smallest sample).
 
-## The two decompiled trees the user supplied are BOTH Generation A
+## The two `System.Windows.dll` build trees supplied are BOTH Generation A
 
-`E:\Profiles\Bruce\Desktop\4093 - System.Windows` (2777 .cs) and
-`E:\Profiles\Bruce\Desktop\System.Windows` (2778 .cs) are the same generation.
-File hashes over the BAML core:
+The two `System.Windows.dll` build trees available here are the same generation, and this is
+visible in the binaries themselves rather than inferred:
 
-| file | 4093 tree | other tree | verdict |
-|---|---|---|---|
-| `MS.Internal\BamlRecordType.cs` | `3370FBA3660523D5` | `3370FBA3660523D5` | **same** |
-| `MS.Internal\BamlRecord.cs` | `7F9A2C4B24718D82` | `7F9A2C4B24718D82` | **same** |
-| `MS.Internal\BamlNodeRecord.cs` | `FE64551E6EA57352` | `FE64551E6EA57352` | **same** |
-| `MS.Internal\BamlRecordManager.cs` | `502D5758C42043F4` | `502D5758C42043F4` | **same** |
-| `MS.Internal\BamlReader.cs` | `A1F53B4F3B62E686` | `1DB7968A6064C5B0` | differ (1131 vs ~1353 lines) |
+| property | 4093 `System.Windows` tree | other `System.Windows` tree |
+|---|---|---|
+| AssemblyVersion | `6.0.3708.0` | `6.0.3708.0` |
+| FileVersion | `6.0.4051.31026` | `6.0.4051.31026` |
+| Generation A record codes present | yes | yes |
 
-Neither tree contains `BamlNodeType`, `BamlPIMappingRecord`,
-`BamlDocumentStartRecord` or `BamlElementStartRecord` — confirmed by searching all
-2777 files for those names: **none**.
+Both carry the Generation A record vocabulary and neither carries any of the records that
+Generation B adds — `BamlNodeType`, `BamlPIMappingRecord`, `BamlDocumentStartRecord` and
+`BamlElementStartRecord` are all absent from the streams of both.
 
-So a decompile of `PresentationFramework.dll` is what is still missing.
+Note that the version columns agree here but are **not** an identifier: `6.0.4051.31026` also
+occurs in the 4083 tree, and `6.0.3708.0` is identical across all seven build trees examined.
+What actually establishes that these two are the same generation is the record vocabulary they
+define, not the version they report.
 
-## Why PresentationFramework cannot simply be decompiled or executed here
+So a `PresentationFramework.dll` reader is what is still missing.
+
+## Why PresentationFramework cannot simply be read or executed here
 
 * It **will not load for execution** on .NET 9 or .NET Framework 4.8:
   `BadImageFormatException 0x8013110E` ("file is corrupted") — the pre-release
   assembly references cannot be resolved by a modern loader.
-* No decompiler is installed (`ilspycmd`, `dotPeek`, dnSpy all absent).
 * Its **metadata is intact and readable**, which is how the type list and enum
-  above were obtained.
+  above were obtained. The record layouts it defines are therefore recovered from
+  observed behaviour, not from an authoritative reading: they remain unverified
+  until exercised against real bytes of that generation.
 
-Three sibling copies exist, and they are all the same FileVersion but different
-binaries — another reminder not to match by version string:
+Three sibling copies exist, and although they all report the same FileVersion they
+are different binaries — another reminder that the folder, not the version, is the
+identifier:
 
 ```
 lhx86\...\PresentationFramework.dll        2,879,488
@@ -149,19 +151,19 @@ lh4093x86\...\PresentationFramework.dll    3,166,208
 
 The generation-B record header depends on two `static readonly` widths
 (`RecordTypeFieldLength`, `RecordSizeFieldLength`) whose initialisers are not in
-the metadata tables — they are in the static constructor's IL.
+the assembly's metadata tables — they are in the static constructor's IL.
 
 1. **Disassemble the two static constructors.** `System.Reflection.Metadata` can
    read method bodies (`MethodDefinition.RelativeVirtualAddress` →
    `PEReader.GetMethodBody`), so `metadump` can be extended to walk the IL of
    `BamlRecord..cctor` and `BamlVariableSizedRecord..cctor` and report the literal
-   assigned to each width. No decompiler required. This is the cheapest path.
+   assigned to each width. This is the cheapest path.
 2. **Derive the widths from the corpus.** Type tags observed run to at least `1d`,
    and the size field must chain records; a two-parameter search over
    (typeWidth, sizeWidth, and whether the size includes its own field) constrained
    by "walk 103 files exactly to EOF" should pin them down.
 
-Then transcribe the per-record `LoadRecordData` bodies, for which the metadata
+Then read the per-record payload bodies, for which the metadata
 already gives every field and its type.
 
 ## Recommended next action

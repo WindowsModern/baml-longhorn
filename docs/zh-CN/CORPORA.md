@@ -7,10 +7,10 @@
 
 | 文件夹 | 文件数 | 来源 | 备注 |
 |---|---|---|---|
-| `samples\xaml` | 103 | `反编译\4074\Microsoft.Windows.WCPClient\Microsoft.Windows.WCPClient.g.resx` | 主要的 4074 语料；192,327 字节 |
-| `samples\wcp4093` | **133** | `反编译\4093\Microsoft.Windows.WCPClient\Microsoft.Windows.WCPClient.g.resx` | 4093 语料；**其中 101 个文件名与 4074 样本集重合** |
-| `samples\extracted-4093` | 5 | `反编译\4093\PresentationFramework\…g.resx`（1 个）+ `PresentationUI\…g.resx`（4 个） | 包含一份 51,684 字节的主题字典 |
-| `samples\xaml-3683` | **32** | `反编译\3683\Microsoft.Windows.Client\LocalResources.resx` | **源 XAML 文本**，而非 BAML |
+| `samples\xaml` | 103 | `Microsoft.Windows.WCPClient.g.resx`，build 4074 目录树 | 主要的 4074 语料；192,327 字节 |
+| `samples\wcp4093` | **133** | `Microsoft.Windows.WCPClient.g.resx`，build 4093 目录树 | 4093 语料；**其中 101 个文件名与 4074 样本集重合** |
+| `samples\extracted-4093` | 5 | `PresentationFramework.g.resx`（1 个）+ `PresentationUI.g.resx`（4 个），均为 build 4093 目录树 | 包含一份 51,684 字节的主题字典 |
+| `samples\xaml-3683` | **32** | `LocalResources.resx`，build 3683 目录树 | **源 XAML 文本**，而非 BAML |
 | `samples\reference` | 5 | `4047 BAML` 集合 | LONG 家族样本，外加一组源文件/二进制对照 |
 
 ## 工具
@@ -55,13 +55,13 @@ python tools\extract_bf_xaml.py   <x.resx>  <outdir> [--list]    # BinaryFormatt
 `[int64 size][int16 type]` 会不断命中普通 PE 数据（`size=98` 几乎在每一个程序集中
 反复出现），产生的假阳性远多于有效信号。这种四字节对齐的猜测无法取代资源名检验。
 
-因此，3718/4033/4039/4042 的 LONG 剖面是**依据反编译得到的枚举定义的，却没有样本**：
+因此，3718/4033/4039/4042 的 LONG 剖面是**依据各世代定义的记录码确定的，却没有样本**：
 它们可以被选中、也能正常解析，但从未有任何东西拿真实字节去检验过它们。
 `example.baml`（3683）与 `481.baml`（4015）仍是仅有的 LONG 样本。
 
 ## 构建 3683 属于源 XAML 时代
 
-`反编译\3683\Microsoft.Windows.Client\LocalResources.resx`（765,077 字节）以**文本**
+build 3683 的 `LocalResources.resx`（765,077 字节）以**文本**
 形式保存了 **32 份 XAML 文档**，而非编译后的 BAML；`Microsoft.Windows.Client.dll`
 也以 `ShellView.xaml` 之类的名称内嵌了同样的这 32 份。这让 3683 可以作为
 **Avalon 时代标记语言面貌的基准真值（ground truth）**，但它不是 BAML 语料。

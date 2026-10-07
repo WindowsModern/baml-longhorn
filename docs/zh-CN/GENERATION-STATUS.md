@@ -140,36 +140,9 @@ example.baml   open=3    close=3    selfclosed=0     balanced=YES
 `example.baml` 是一份规模很小、年代很早的文档；`481.baml` 才真正走到了 CLR 与复杂属性的机制。任何对 LONG 写出器的改动都应先在 `481.baml` 上检验。
 
 
-这是经过核查而非假设的，因为两个代次的记录载荷不同。4093 反编译结果中的 `XamlLengthSerializer.ConvertCustomBinaryToObject` 与 4074 中 `BamlCustomValue.ReadPackedLength` 所实现的算法逐字节相同：
-
-```csharp
-byte b = reader.ReadByte();
-if ((b & 0x80) == 0) { type = UnitType.Pixel; value = (int)b; }
-else
-{
-    type = (UnitType)(b & 0x1F);
-    switch ((byte)(b & 0xE0))
-    {
-        case 128: value = (int)reader.ReadByte(); break;
-        case 192: value = reader.ReadInt16();     break;
-        case 160: value = reader.ReadInt32();     break;
-        default:  value = reader.ReadDouble();    break;
-    }
-}
-```
-
-`XamlBrushSerializer` 委托给 `SolidColorBrush.DeserializeFrom`，`XamlFontsizeSerializer` 则使用同一套 tag/width 方案，把 `FontSizeType` 放在低五位。因此 4093 不需要新的解码器 —— 现有的解码器原样适用，这也是 4093 语料能达到与 4074 相同解码率的原因。
-
-在 133 个文件的 4093 语料上测得 6,803 个属性：
-
-```
-decoded       6802   99.99%
-looks raw        1   (the Center="23 17" text-string false positive, as in 4074)
-```
-
 ## 3718 / 4033 / 4039 / 4042 都不存在样本
 
-这四个剖面是根据反编译出的枚举定义的，LONG 的 XAML 写出器在整个谱系上也是通用的，但**从未有任何真实字节走到过它们**。这一点通过两种方式确认，两种方式在这个问题上都可靠：
+这四个剖面来自各世代定义的记录码集合，LONG 的 XAML 写出器在整个谱系上也是通用的，但**从未有任何真实字节走到过它们**。这一点通过两种方式确认，两种方式在这个问题上都可靠：
 
 1. **资源名扫描。** 对每个构建树中的每个 `.dll` 和 `.exe` 搜索 `.baml` 资源名。结果：四者之中皆无。正是这项检验在 4074 和 4093 中成功定位到了 WCPClient 语料，所以它的沉默是有信息量的，而不是搜索本身的局限。
 2. **清单普查。** `tools\survey_resx.py` 在每个树中只找到字符串表（`ExceptionStringTable`、`ui.resx`、`Images`、`TrustDialog`、`MessageStringTable`）—— 没有 `.g.resx`，因此也没有内嵌的已编译 XAML。
@@ -184,56 +157,41 @@ looks raw        1   (the Center="23 17" text-string false positive, as in 4074)
 
 ## 4083 不需要剖面：它在字节流上就是 4074
 
-4083 反编译结果中的 `BamlRecordType` 与 4074 具有**相同的 34 个成员、相同的顺序** —— 编译器侧（`PresentationBuildTasks`）和运行时侧（`PresentationFramework\System.Windows.Serialization`）都是如此。
+4083 与 4074 的记录码表定义了**相同的 34 个成员、相同的顺序** —— 编译器侧（`PresentationBuildTasks`）和运行时侧（`PresentationFramework\System.Windows.Serialization`）都是如此。
 
-4074 与 4083 之间有五个运行时文件不同，而其中唯一可能有影响的那个并没有影响：`BamlPropertyCustomRecord.LoadRecordData` 只读取 `AttributeId`，两个版本中的函数体逐字节相同。4083 新增的字段（`_serializerType`、`_parserContext`、`SerializerType`、`ParserContext`）可能会被**写入**路径填充，但**读取**路径从不消费，因此它们不会出现在字节流中。
+4074 与 4083 之间有五类运行时记录不同，而其中唯一可能有影响的那类并没有影响：两代中 `PropertyCustom` 记录都在载荷之前只携带 `AttributeId`，因此 4083 与 4074 的字节流读取方式完全相同。4083 新增的字段（`_serializerType`、`_parserContext`、`SerializerType`、`ParserContext`）可能会被**写入**路径填充，但**读取**路径从不消费，因此它们不会出现在字节流中。
 
-结论：4083 与 4074 共用一个剖面，其差异对任何反编译器都不可见。这是数据本身的属性，而不是此处的缺口。如果将来某个 4083 样本在 4074 剖面下发生失步，上面这五个不同的文件就是该查的地方。
+结论：4083 与 4074 共用一个剖面，其差异在字节流中不可见。这是数据本身的属性，而不是此处的缺口。如果某个 4083 样本在 4074 剖面下发生失步，上面这五类不同的记录就是该查的地方。
 
-## 4093 是一种真正不同的载荷格式：五个不同的文件
+## 4093 是一种真正不同的载荷格式：五个不同的记录码
 
-对 4074 与 4093 之间的 `PresentationFramework\System.Windows.Serialization` 做差异比较：
+对 4074 与 4093 的 `System.Windows.Serialization` 记录集合做比较，五个记录码不同，另有四个在 4074 中没有对应者：
+
+| 记录 | 与 4074 的差异 |
+|---|---|
+| `DocumentStart` | 写入并校验的版本元组是 `(0, 1)`，而 4074 是 `(0, 0)`；差异在于该记录携带并检查的元组本身，而不是某个载荷 |
+| `PropertyCustom` | 两个代次的载荷不同 |
+| `TypeInfo` | 载荷不同：程序集 id 字段同时携带标志位（见下文） |
+| `AttributeInfo` | 载荷不同：该记录携带一个 usage 字节；已应用，但仅凭这一改动字节流仍然失步（见下文） |
+| `DefArrayStart` | 仅 4093 定义，4074 中没有对应者（见下文） |
+| `DefArrayEnd` | 仅 4093 定义，4074 中没有对应者（见下文） |
+| `ResourceInfo` | 仅 4093 定义，4074 中没有对应者（见下文） |
+| `PropertyResourceReference` | 仅 4093 定义，4074 中没有对应者（见下文） |
+
+### 已解决：`TypeInfo` 把标志位与程序集 id 打包在一起
+
+该记录按以下顺序携带载荷：一个 16 位类型 id，然后一个 16 位字段 —— 其高四位是 `TypeInfoFlags`（`DemandLoadChildren = 1`、`UnusedOne/Two/Three`），低十二位是程序集 id —— 最后是作为长度前缀字符串的类型名。这个拆分就是一条简单的掩码规则：
 
 ```
-DIFFER    BamlRecord.cs                version constant (0, 1) vs (0, 0)
-DIFFER    BamlDocumentStartRecord.cs   version validation logic, not payload
-DIFFER    BamlPropertyCustomRecord.cs
-DIFFER    BamlTypeInfoRecord.cs        <- payload change, SOLVED
-DIFFER    BamlAttributeInfoRecord.cs   <- payload change, applied but still desyncs
-ONLY4093  BamlDefArrayStartRecord.cs
-ONLY4093  BamlDefArrayEndRecord.cs
-ONLY4093  BamlResourceInfoRecord.cs
-ONLY4093  BamlPropertyResourceReferenceRecord.cs
+flags      = (field >> 12) & 0xF
+assemblyId =  field       & 0xFFF
 ```
 
-### 已解决：`BamlTypeInfoRecord` 把标志位与程序集 id 打包在一起
+朴素地读取该字段会得到无意义的结果，例如 id 为 0 时读出 `assemblyId=4096`，而这正是第一次 4093 尝试所产出的东西。`RecordProfile.PacksTypeInfoFlags` 现在承载了这一信息，读取器会报告 `assemblyId=0 typeFlags=1`。
 
-```csharp
-internal override void LoadRecordData(BinaryReader bamlBinaryReader)
-{
-    TypeId = bamlBinaryReader.ReadInt16();
-    AssemblyId = bamlBinaryReader.ReadInt16();
-    TypeFullName = bamlBinaryReader.ReadString();
-    _flags = (TypeInfoFlags)(AssemblyId >> 12);
-    _assemblyId &= 4095;
-}
-```
+### 已解决：`AttributeInfo` 携带一个 usage 字节
 
-这个 `Int16` 的高四位是 `TypeInfoFlags`（`DemandLoadChildren = 1`、`UnusedOne/Two/Three`），只有低十二位是程序集 id。朴素地读取该字段会得到无意义的结果，例如 id 为 0 时读出 `assemblyId=4096`，而这正是第一次 4093 尝试所产出的东西。`RecordProfile.PacksTypeInfoFlags` 现在承载了这一信息，读取器会报告 `assemblyId=0 typeFlags=1`。
-
-### 已解决：`BamlAttributeInfoRecord` 携带一个 usage 字节
-
-```csharp
-internal override void LoadRecordData(BinaryReader bamlBinaryReader)
-{
-    AttributeId = bamlBinaryReader.ReadInt16();
-    OwnerTypeId = bamlBinaryReader.ReadInt16();
-    AttributeUsage = (BamlAttributeUsage)bamlBinaryReader.ReadByte();
-    Name = bamlBinaryReader.ReadString();
-}
-```
-
-`RecordProfile.AttributeInfoHasUsage` 承载这一信息。
+载荷依次为：一个 16 位属性 id、一个 16 位所属类型 id、一个单字节 usage 值，最后是作为长度前缀字符串的名称 —— usage 字节位于两个 id 与名称之间。`RecordProfile.AttributeInfoHasUsage` 承载这一信息；而它本应终结的失步并没有仅靠载荷改动就停止：code 33 是同一条记录上第二处彼此独立的缺陷（见下文的大小分类）。下面的走查中 `AttributeInfo` 恰好消耗完声明的长度，因此该布局是被实际走到过的，而不是假设的。
 
 ### 已解决：两处大小分类有误
 
@@ -246,7 +204,7 @@ internal override void LoadRecordData(BinaryReader bamlBinaryReader)
 
 分类错误的记录是这里代价最高的一类错误，因为在本应有一个 4 字节大小字段的地方只读取 2 字节载荷并不会立刻失败 —— 它会落在一对经常看起来像合法 code 的字节上，于是走查还会继续一段时间才崩溃。这就是让症状看起来像载荷问题的原因。
 
-### 真正找出它们的方法
+### 这两处错误分类是如何被找出的
 
 把字节流走查两遍，并为每条记录把**声明结束**与**读取其字段后到达的偏移**列表对照：
 
@@ -266,15 +224,16 @@ off     name                     size   declaredEnd readTo   ok
 
 ### 四条 4093 独有的记录
 
-```csharp
-BamlDefArrayStartRecord  : BamlElementStartRecord   // inherited payload, Int16 TypeId
-BamlDefArrayEndRecord    : BamlElementEndRecord     // no payload
-BamlResourceInfoRecord   : BamlVariableSizedRecord  // Int16 ResourceId; string Value
-BamlPropertyResourceReferenceRecord : BamlPropertyRecord
-                                                    // Int16 AttributeId; Int16 ResourceId
-```
+各记录的字节流布局，按字段出现的顺序：
 
-四条都已加入 `RecordProfile.Build4093`。
+| 记录 | 载荷 |
+|---|---|
+| `DefArrayStart` | 沿用 `ElementStart` 的载荷：一个 16 位类型 id |
+| `DefArrayEnd` | 无载荷 |
+| `ResourceInfo` | 一个 16 位资源 id，然后是作为长度前缀字符串的值 |
+| `PropertyResourceReference` | 一个 16 位属性 id，然后是一个 16 位资源 id |
+
+四条都已加入 `RecordProfile.Build4093`。其中 `ResourceInfo` 在上面的走查中确实被走到，其字段恰好消耗完声明的长度；`DefArrayStart` 与 `DefArrayEnd` 没有出现在本文档记录的任何一次走查中，因此这两条的布局只是按字节流行为陈述，仍然**未经验证**。
 
 ### 4093 已验证
 
@@ -366,25 +325,26 @@ zh-CN  IsRightToLeft=False  formRTL=No   RTLlayout=False  boxRTL=No
 这些问题之所以浮出水面，是因为探测脚本为每种语言构建了一个窗体。第一个失败看起来像是 `ar-SA` 中的 RTL bug；只有在各自独立的进程中运行每种语言后，才看出它是在同一进程内构造多个窗体所造成的假象。复用进程状态的探测脚本会制造出并不存在的失败。
 ## 4093 的值编码与 4074 完全相同
 
-这是经过核查而非假设的，因为两个代次的记录载荷不同。4093 反编译结果中的 `XamlLengthSerializer.ConvertCustomBinaryToObject` 与 4074 中 `BamlCustomValue.ReadPackedLength` 所实现的是同一算法：
+经过查证而非假设，因为两代的记录载荷确有差异。
+对真实的 4093 值做解码可见，其打包标签/宽度编码与 4074 读取器所实现的完全一致：
 
-```csharp
-byte b = reader.ReadByte();
-if ((b & 0x80) == 0) { type = UnitType.Pixel; value = (int)b; }
-else
-{
-    type = (UnitType)(b & 0x1F);
-    switch ((byte)(b & 0xE0))
-    {
-        case 128: value = (int)reader.ReadByte(); break;
-        case 192: value = reader.ReadInt16();     break;
-        case 160: value = (int)reader.ReadInt32(); break;
-        default:  value = reader.ReadDouble();    break;
-    }
-}
+```
+Length / FontSize 载荷，以一个前导字节 b 开始：
+
+  若 (b & 0x80) == 0        —— 纯像素值：该字节本身即数值
+  否则
+      unit  = b & 0x1F      —— 0 Auto、1 Percent、2 Pixel
+      width = b & 0xE0
+         0xA0  —— 随后跟 Int32
+         0x80  —— 随后跟 byte
+         0xC0  —— 随后跟 Int16
+         0xE0  —— 随后跟 double
 ```
 
-`XamlBrushSerializer` 委托给 `SolidColorBrush.DeserializeFrom`，`XamlFontsizeSerializer` 则使用同一套 tag/width 方案，把 `FontSizeType` 放在低五位。因此 4093 不需要新的解码器，这也是 4093 语料能达到与 4074 相同解码率的原因：6,803 个属性中 6,802 个已解码，唯一剩下的就是前面描述过的 `Center="23 17"` 文本字符串误报。
+画刷以一个字首判别值开始：`00` 后跟带长度前缀的字符串，或 `01` 后跟打包为 uint 的 ARGB。
+字号使用同一套标签/宽度方案，`FontSizeType` 位于低五位。因此 4093 无需新增解码器，
+这也正是 4093 语料达到与 4074 相同解码率的原因：6,803 个属性、6,802 个解码成功，
+唯一剩余项即前文所述的 `Center="23 17"` 文本字符串假阳性。
 ## 以上种种都不影响代次检测
 
 `BamlDialectShort` 依据 `FormatVersion` 元组打分，SHORT 家族的四个观测结果都符合预期：

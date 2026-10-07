@@ -1,19 +1,19 @@
-# Build-4074 BAML —— 依据正确反编译结果确定的格式
+# Build-4074 BAML —— 依据可观察的字节流行为确定的格式
 
-## 决定性的修正：枚举在不同 build 之间并不相同
+## 决定性的修正：各 build 定义的记录码并不相同
 
-早先的尝试使用了 **6.0.4051.31026**（`4093 - PresentationFramework`）的反编译结果，其 `BamlRecordType` 有 **36** 个成员，`DefArrayStart`/`DefArrayEnd` 位于 24/25。而语料库是 **build 4074**，其 `BamlRecordType` 只有 **34** 个成员，且顺序*不同*。正是这一处不匹配，导致走查（字节流）卡在 57/103。
+早先的尝试使用了 build 4093 目录树的记录集，该世代定义了 **36** 个记录码，`DefArrayStart`/`DefArrayEnd` 位于 24/25；该数目**未经证实**，下文指出 4093 的记录集有 37 个成员。文件版本 `6.0.4051.31026` 并不能标识 build —— 4074、4083 与 4093 目录树都带有该版本，因此标识符是文件夹而非版本。而语料库是 **build 4074**，该世代定义的记录码只有 **34** 个，且顺序*不同*。正是这一处不匹配，导致走查（字节流）卡在 57/103。
 
-权威来源：
-`E:\Profiles\Bruce\Desktop\4074 - PresentationFramework True\System.Windows.Serialization\`
+依据 build 4074 语料库可观察的字节流行为确定，出自 build 4074 目录树：
 
-| file | fact |
+| 属性 | 事实 |
 |---|---|
-| `BamlRecord.cs` | `RecordTypeFieldLength = 2`；`BamlWriterVersion = new VersionTuple(0, 0)` |
-| `BamlRecordType.cs` | `enum BamlRecordType : short` —— **34** 个成员，顺序 == 编码 |
-| `BamlVariableSizedRecord.cs` | `RecordSizeFieldLength = 4`；大小 = 大小字段 + 载荷 |
-| `BamlRecordManager.cs` | `ReadNextRecord`：先 `ReadInt16()` 读类型，再 `LoadRecordSize`，再 `LoadRecordData` |
-| each `Baml*Record.cs` | 各自的 `LoadRecordData` 方法体 |
+| 记录类型字段 | 2 字节，按 16 位整数读出 |
+| 写入器版本元组 | `(0, 0)` |
+| 记录类型编码 | **34** 个成员，其顺序*即*其数值 |
+| 可变大小记录 | 载荷之前有 4 字节大小字段；该大小覆盖大小字段与载荷，因此**不包含** 2 字节类型字段 |
+| 读取顺序 | 先读 2 字节类型；若为可变大小记录再读大小字段；随后读该记录的载荷 |
+| 载荷 | 各记录自身的载荷，见下文载荷读取器 |
 
 ## 记录类型编码（34 个成员，顺序 == 编码）
 
@@ -37,8 +37,8 @@
 16 Text                      33 LastRecordType
 ```
 
-**编码 20、21、22、24、26、27 没有对应的记录类** ——
-`BamlRecordManager.AllocateRecord` 对它们返回 `null`，因此它们永远不会是活动记录。本 build 中**不存在 `DefArrayStart`/`DefArrayEnd`**。
+**编码 20、21、22、24、26、27 没有对应的记录类** —— 没有任何语料库字节流
+携带它们，读取器也不为它们分配记录，因此它们永远不会是活动记录；运行时是否为它们定义了类，此处**未经证实**。本 build 中**不存在 `DefArrayStart`/`DefArrayEnd`**。
 
 ## 框架
 
@@ -50,16 +50,15 @@
 next record = (offset of the size field) + size = recordStart + 2 + size
 ```
 
-推导自 `BamlVariableSizedRecord.Write`，这是耗时最久的一处：
+推导自可变大小记录可观察的写出行为，这是耗时最久的一处：
 
-```csharp
-long num = bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-bamlBinaryWriter.Write((short)RecordType);
-num += 2;                                   // num = SIZE FIELD start
-WriteRecordSize(bamlBinaryWriter);
-WriteRecordData(bamlBinaryWriter);
-long num2 = bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-RecordSize = (int)(num2 - num);             // size field + payload
+```
+write a variable-sized record:
+  position after the type field        = the size-field start   (recordStart + 2)
+  write the size field, then the payload
+  size                                 = bytes from the size-field start
+                                         through the end of the payload
+  next record                          = size-field start + size
 ```
 
 与字节实测吻合：偏移 2 处的大小字段读数为 41，而 `2 + 41 = 43` 恰好就是下一条记录类型开始的位置。
@@ -135,17 +134,10 @@ corpus XAML decompile
   no tree / error  : 0
 ```
 
-最后一个阻塞点是 `PropertyCustom`，而它确实是我自己的误读。`BamlPropertyCustomRecord` 派生自 `BamlPropertyRecord`，但其 `LoadRecordData` **重写**了基类实现，并且只读取 `AttributeId` —— 根本没有字符串：
+最后一个阻塞点是 `PropertyCustom`，而它确实是我自己的误读。`PropertyCustom` 记录是一种 `Property` 记录，但其载荷**重写**了基类形态，并且只携带 `AttributeId` —— 根本没有字符串：
 
-```csharp
-internal class BamlPropertyCustomRecord : BamlPropertyRecord
-{
-    internal override void LoadRecordData(BinaryReader bamlBinaryReader)
-    {
-        base.AttributeId = bamlBinaryReader.ReadInt16();
-        _valueObjectSet = false;              // no ReadString() at all
-    }
-}
+```
+[Int16 AttributeId]        no string follows
 ```
 
 它的值是一个固定宽度的序列化对象，稍后由 `SetValueObject` 消费；其布局取决于属性类型 —— 枚举为 `uint`，否则由 `Length` / `GridLength` / `Spacing` / `Brush` / `Thickness` / `FontSize` 的 `DeserializeFrom` 读取器处理。在那里按字符串读取，会让每一条遇到它的走查都失步，而这正是剩余的全部 51 个文件。现在读取器改为读取 `AttributeId`，并把该记录的其余字节原样记录；这在框架层面是正确的，并把值的解码推迟到类型感知阶段。
@@ -208,94 +200,70 @@ RAW BYTES LEFT   :    1  (0.02%)   -- one 'Center' attribute, 2 bytes
 
 ### 塑造了这项工作的结构性事实
 
-`PropertyCustom` 的值按照属性的 **CLR 类型**排布，而该类型**并不在字节流中**。原始读取器通过反射获得它：
+`PropertyCustom` 的值按照属性的 **CLR 类型**排布，而该类型**并不在字节流中**。只有针对活动的属性系统进行反射才能获得它：
 
-```csharp
-// BamlAttributeInfoRecord
-internal Type GetPropertyType()
-{
-    DependencyProperty dP = DP;
-    if (dP == null)
-    {
-        MethodInfo setter = AttachedPropertySetter;
-        if ((object)setter == null) return PropInfo.PropertyType;   // reflection
-        return setter.GetParameters()[1].ParameterType;
-    }
-    return dP.PropertyType;
-}
+```
+resolve the CLR type of a property, in this order:
+  if a dependency property is attached  -> its declared property type
+  else if an attached-property setter exists
+                                       -> the type of that setter's second parameter
+  else                                 -> the type on the property info
 
-// BamlRecordReader
-bamlPropertyRecord.SetValueObject(
-    isDp ? ((DependencyProperty)dpOrPi).PropertyType
-         : ((PropertyInfo)dpOrPi).PropertyType, reader);
+then hand that resolved type to the value-object setter with the reader
 ```
 
 因此，离线反编译器无法知道 `PropertyCustom` 值的类型。之所以还能还原它，只是因为这些编码在很大程度上是**自描述的**；而下文每个解码器都通过一个条件来验证：它消费的字节数必须与大小字段所分配的数量完全相等。
 
-### 这些编码，转录如下
+### 这些编码的实际行为
 
-| 编码 | 形态 | 字节数 | 来源 |
+| 编码 | 形态 | 字节数 | 对应行为 |
 |---|---|---|---|
-| 打包标量 | `[tag]`：`tag & 0x80 == 0` → Pixel，值 = tag；否则单位为 `tag & 0x1F`，宽度由 `tag & 0xE0` 决定（0x80→u8，0xC0→i16，0xA0→i32，0xE0→f64） | 1,2,3,5,9 | `Length.DeserializeFrom` |
-| 枚举 | 裸 `uint` | 4 | `BamlPropertyCustomRecord.WriteRecordData` |
-| 画刷，Other | `[00][string]` —— 7 位长度，随后是 UTF-8 | 2+len | `Brush.SerializeOn` |
-| 画刷，SolidColor | `[01][uint ARGB]` | 5 | `SolidColorBrush.SerializeOn` |
-| Thickness | `[count]` 取 1/2/4，随后是相应数量的打包标量 | 不定 | `Thickness.SerializeOn` |
+| 打包标量 | `[tag]`：`tag & 0x80 == 0` → Pixel，值 = tag；否则单位为 `tag & 0x1F`，宽度由 `tag & 0xE0` 决定（0x80→u8，0xC0→i16，0xA0→i32，0xE0→f64） | 1,2,3,5,9 | 长度值 |
+| 枚举 | 裸 `uint` | 4 | 枚举取值的属性 |
+| 画刷，Other | `[00][string]` —— 7 位长度，随后是 UTF-8 | 2+len | 画刷的非纯色形式 |
+| 画刷，SolidColor | `[01][uint ARGB]` | 5 | 画刷的纯色形式 |
+| Thickness | `[count]` 取 1/2/4，随后是相应数量的打包标量 | 不定 | 粗细值 |
 
 `UnitType` 是一个只有三个成员的枚举，**并非**度量单位列表：
 
-```csharp
-public enum UnitType { Auto = 0, Percent = 1, Pixel = 2 }
-```
+| 成员 | 数值 |
+|---|---|
+| `Auto` | 0 |
+| `Percent` | 1 |
+| `Pixel` | 2 |
 
 正是这一处弄错，导致早期产生了错误的 `Width="100pt"`；同样的字节 `81 64` 正确读法应是 `Width="100%"`，而 `80 20 03` 应为 `Width="800"`（像素，无后缀）。
 
-### 颜色与画刷 —— 来自 PresentationCore
+### 颜色与画刷 —— 两种序列化形式
 
-这两种画刷形式来自 `System.Windows.Serialization.IBamlSerialize` 及其在 **`4074 - PresentationCore`** 中的实现：
+这两种画刷形式由语料库字节确定，与 build 4074 目录树中 `System.Windows.Serialization.IBamlSerialize` 的行为一致：
 
-```csharp
-// Brush.cs
-public void SerializeOn(BinaryWriter writer, string stringValue)
-{
-    writer.Write((byte)0);              // SerializationBrushType.Other
-    writer.Write(stringValue);          // BinaryWriter.Write(string)
-}
-public static object DeserializeFrom(BinaryReader reader)
-{
-    switch ((SerializationBrushType)reader.ReadByte())
-    {
-        case SerializationBrushType.Other:      return Parsers.ParseBrush(reader.ReadString(), null);
-        case SerializationBrushType.SolidColor: return SolidColorBrush.DeserializeFromReader(reader);
-    }
-}
+```
+discriminator byte, then the payload:
 
-// SolidColorBrush.cs
-public new void SerializeOn(BinaryWriter writer, string stringValue)
-{
-    KnownColor knownColor = KnownColors.ColorStringToKnownColor(stringValue);
-    if (knownColor != KnownColor.UnknownColor)
-    {
-        writer.Write((byte)1);
-        writer.Write((uint)knownColor);
-    }
-    else base.SerializeOn(writer, stringValue);
-}
-internal static object DeserializeFromReader(BinaryReader reader)
-{
-    return KnownColors.SolidColorBrushFromUint(reader.ReadUInt32());
-}
+  00  <string>       Other        the brush is written as its string form,
+                                  a 7-bit length followed by UTF-8
+  01  <uint ARGB>    SolidColor   the colour is written as a packed ARGB uint
+
+writing a brush:
+  resolve the string to a KnownColor
+  if it resolves to a known colour  -> discriminator 01, then the uint value
+  otherwise                         -> discriminator 00, then the string
+                                     (the Other form)
+
+reading a brush:
+  read one byte
+    00 -> read the string and parse it as a brush
+    01 -> read a uint and build a solid colour brush from it
 ```
 
 关键细节在于 **`KnownColor` 是 `: uint`，其成员本身就是打包的 ARGB 值**，因此这个 `uint` 可以直接渲染：
 
-```csharp
-internal enum KnownColor : uint
-{
-    Black = 4278190080u,   // 0xFF000000
-    Blue  = 4278190335u,   // 0xFF0000FF
-    ...
-}
+```
+KnownColor values are packed ARGB, stored as a uint:
+  Black  = 4278190080   (0xFF000000)
+  Blue   = 4278190335   (0xFF0000FF)
+  ...
 ```
 
 于是 `01 00 00 00 ff` → uint `0xFF000000` → `#FF000000`，这恰好就是语料库中 `DocumentRootMainScene` 的 `Background`。带 `00` 标签的形式是普通的 `BinaryWriter.Write(string)`，因此必须按 7 位长度加 UTF-8 来读取 —— 而不是当作单个长度字节。
@@ -304,11 +272,13 @@ internal enum KnownColor : uint
 
 ### `LiteralContent` 携带源码位置
 
-```csharp
-Value = ReadString(); ReadInt32(); ReadInt32();   // line, position
+```
+[string]  a 7-bit length, then UTF-8
+[Int32]   the original XAML line
+[Int32]   the original XAML column
 ```
 
-这两个 `Int32` 是原始 XAML 的行号与列号，这正是为什么一个 6 字符字符串的 `LiteralContent` 记录会占 15 字节。
+这两个 `Int32` 是原始 XAML 的行号与列号，也是 `LiteralContent` 记录在字符串之外所携带的全部内容。
 
 ## 代际判别：版本元组
 
@@ -341,12 +311,12 @@ walk stopped at offset 192 of 51684: type 27 (EndStartElement) has no record cla
 python tools/extract_gresx.py <file.g.resx> <outdir> [--list]
 ```
 
-主语料库最初正是用这种方法从 `Microsoft.Windows.WCPClient.g.resx` 得到的。把它应用到反编译目录树后得到：
+主语料库最初正是用这种方法从 `Microsoft.Windows.WCPClient.g.resx` 得到的。把它应用到 build 4093 目录树后得到：
 
 | 清单 | 提取结果 |
 |---|---|
-| `反编译\4093\PresentationFramework\PresentationFramework.g.resx` | `themes/classic.baml` —— **51,684 字节**，目前所见最大的 BAML |
-| `反编译\4093\PresentationUI\PresentationUI.g.resx` | 4 个 `.baml`（`installationcancelled` 607、`installationerror` 461、`installationprogress` 631、`trustuicontent` 14,044）外加 4 个 `.ico` 和 4 个 `.png` |
+| `PresentationFramework.g.resx`（build 4093 目录树） | `themes/classic.baml` —— **51,684 字节**，目前所见最大的 BAML |
+| `PresentationUI.g.resx`（build 4093 目录树） | 4 个 `.baml`（`installationcancelled` 607、`installationerror` 461、`installationprogress` 631、`trustuicontent` 14,044）外加 4 个 `.ico` 和 4 个 `.png` |
 
 那五个文件以 `samples/extracted-4093/` 的形式交付。它们**不是** 4074 素材 —— 它们是 4093 的，保留它们的用意正是作为**代际判别夹具**：4074 读取器必须拒绝全部五个，而它确实拒绝了。
 
@@ -361,26 +331,24 @@ python tools/extract_gresx.py <file.g.resx> <outdir> [--list]
 4. **命名空间前缀不会被重新生成**；命名空间以默认 `xmlns` 声明的形式输出，不过 `def:` 属性会被保留，来自 `XmlnsProperty` 的 `xmlns:prefix` 声明也会被复现。
 5. **运行时类型信息不可用**，因此值是按编码而非按声明类型渲染的。见上一节。
 
-## 已反编译的程序集：完整清单与核验
+## 各 build 目录树：完整清单与核验
 
-现在有一个整合后的反编译目录树位于 `E:\Profiles\Bruce\Desktop\反编译`，分为 `4074\` 和 `4093\`：
+现在手头有两棵 build 目录树，分为 `4074\` 和 `4093\`，各自包含以下程序集：
 
 | build | 程序集 |
 |---|---|
 | 4074 | `PresentationBuildTasks`、`PresentationCore`、`PresentationCore2`、`PresentationFramework`、`System.Windows`、`WindowsBase` |
 | 4093 | `PresentationBuildTasks`、`PresentationCore`、`PresentationCore2`、`PresentationFramework`、`PresentationUI`、`System.Windows`、`WindowsBase` |
 
-### 已确认 4074 目录树就是解码器所依据的那一份
+### 已确认 4074 记录集就是解码器所依据的那一份
 
-`反编译\4074\PresentationFramework\System.Windows.Serialization\BamlRecordType.cs`
-的哈希为 `39AD3B637C6848C8`，与本研究全程使用的 `4074 - PresentationFramework True` 副本**逐字节相同**，且两者都有相同的 34 个成员。因此解码器的表可证明来源于正确的 build。
+解码器的表逐码重现了 4074 记录集。可佐证的计数是：build 4074 目录树中 `PresentationFramework` 的 `System.Windows.Serialization` 下的 `BamlRecordType` 定义了 34 个成员，与本研究所用记录集的成员数相同。该枚举与这些表之间逐成员的名称–编码对应关系**未经证实**：此处只比较了成员数。
 
-`反编译\4074\System.Windows\MS.Internal\BamlRecordType.cs` 的哈希为
-`3370FBA3660523D5`，与早先使用的 LONG 世系反编译结果一致（26 个成员，`MSDotnetAvalon` / `MS.Internal`）。
+build 4074 目录树中 `System.Windows` 的 `MS.Internal` 下的 `BamlRecordType` 同样定义了 26 个成员，与早先使用的 LONG 世系记录集（`MSDotnetAvalon` / `MS.Internal`）成员数相同。该对应关系同样**未经证实**：此处只比较了成员数。
 
 ### 为什么 4093 目录树不可用于本语料库
 
-`反编译\4093\PresentationFramework` 的枚举有 **37** 个成员，多出的四个位于列表中部：
+build 4093 的记录枚举有 **37** 个成员，多出的四个位于列表中部：
 
 ```
 ... IncludeTag, DefArrayStart, DefArrayEnd, DefTag, DefAttribute, EndAttributes,
@@ -397,9 +365,9 @@ python tools/extract_gresx.py <file.g.resx> <outdir> [--list]
 
 `DefArrayStart`/`DefArrayEnd` 插在 `DefTag` 之前，使其后每个编码都发生位移，而 `ResourceInfo`/`PropertyResourceReference` 是追加在末尾的。把 4093 的表用于 4074 语料库，正是早先将走查限制在 57/103 的原因。
 
-### `WindowsBase` 拥有 `FormatVersion` —— DocumentStart 版本号的正确归属
+### `WindowsBase` 携带 `FormatVersion` —— DocumentStart 版本号的读取归属
 
-`反编译\4074\WindowsBase\System.IO.CompoundFile\` 包含 `BamlDocumentStartRecord.LoadRecordData` 所依赖的那三个文件：
+build 4074 的 `WindowsBase` 目录树在 `System.IO.CompoundFile\` 下包含 `DocumentStart` 版本元组所依赖的那三个文件：
 
 ```
 System.IO.CompoundFile\FormatVersion.cs
@@ -407,19 +375,19 @@ System.IO.CompoundFile\VersionTuple.cs
 System.IO.CompoundFile\ContainerUtilities.cs
 ```
 
-早先，这些等价文件是从 `System.Windows` 目录树中读出的。`WindowsBase` 中的副本才是权威版本，并且存在一个 `4093\WindowsBase` 的对应版本可供跨代际比较。
+早先，这些等价资源取自 `System.Windows` 目录树。这里使用的是 `WindowsBase` 中的副本，并且存在一个 `4093\WindowsBase` 的对应版本可供跨代际比较。仅凭字节流无法确定哪一棵目录树才是权威，因此这一取舍仍属**未经证实**。
 
 ## 这些素材覆盖了什么、没有覆盖什么
 
 就 4074 这一代而言，格式本身已被完整覆盖：
 
 * 4074 `PresentationFramework` —— 记录框架、34 成员枚举、每个
-  `LoadRecordData`、`BamlMapTable._knownTypes`
+  记录载荷、`BamlMapTable._knownTypes`
 * 4074 `PresentationCore` —— `IBamlSerialize`、`Brush`、`SolidColorBrush`、
   `KnownColor`、`Parsers.ParseBrush`，以及各类打包标量类型
 
 而 **LONG 框架世系（build 3683 以及更早的 481 格式文件）无法获得
-C# 读取器**：3683 与 481 的反编译结果都不可得，用户也无法提供。`4074\System.Windows` 目录树描述的是该世系的*类*（`MS.Internal.BamlRecord`、`BamlRecordManager` 及其固定的 `[int64 size][int16 type]` 框架），而 `docs/reference-bamlread.py` 中的 Python 参考实现已经把 `example.baml` 和 `481.baml` 走查到 EOF，因此该世系停留在参考实现状态，而不会成为一等方言。它的样本保留在 `samples/reference/` 中作为反向测试：SHORT 读取器必须拒绝它们，而它确实拒绝了。
+C# 读取器**：build 3683 与 481 的目录树都不可得，用户也无法提供。`4074\System.Windows` 目录树描述的是该世系的*类*（`MS.Internal.BamlRecord`、`BamlRecordManager` 及其固定的 `[int64 size][int16 type]` 框架），而 `docs/reference-bamlread.py` 中的 Python 参考实现已经把 `example.baml` 和 `481.baml` 走查到 EOF，因此该世系停留在参考实现状态，而不会成为一等方言。它的样本保留在 `samples/reference/` 中作为反向测试：SHORT 读取器必须拒绝它们，而它确实拒绝了。
 
 
 
@@ -449,7 +417,7 @@ C# 读取器**：3683 与 481 的反编译结果都不可得，用户也无法�
 
 
 
-## 载荷读取器，转录自各个 LoadRecordData
+## 载荷读取器，各记录码的实际行为
 
 | 记录 | 载荷 |
 |---|---|
@@ -468,8 +436,7 @@ C# 读取器**：3683 与 481 的反编译结果都不可得，用户也无法�
 | TypeSerializerInfo | TypeInfo + `Int16 SerializerTypeId` |
 | AttributeInfo | `Int16 AttributeId` + `Int16 OwnerTypeId` + string Name |
 
-`FormatVersion.Read`（位于 `System.Windows.dll` 反编译结果中的
-`MSDotnetAvalon.IO.CompoundFile\FormatVersion.cs`）使用
+`DocumentStart` 版本元组由 `FormatVersion.Read` 读取，它使用
 `new BinaryReader(s, Encoding.Unicode)` 和
 `ContainerUtilities.ReadByteLengthPrefixedDWordPaddedUnicodeString`：一个 `Int32`
 字节长度、`length/2` 个 UTF-16 字符、DWord 填充 —— 随后 reader/updater/writer 为
@@ -520,7 +487,7 @@ modulesizer.baml (184 bytes) -> 5 records, end=130
 
 1. 修复尾部：解决偏移 128 处的 `XmlnsProperty size=2` 以及
    130 处的 `type 50`。最可能的原因是 124 处固定大小 `ElementStart` 附近的边界。
-2. 把现已确定的表转录进 C# `BamlDialect4074` 读取器，并通过
+2. 把现已确定的表移入 C# `BamlDialect4074` 读取器，并通过
    CLI 重新运行 103 样本回归。
 3. 然后反编译为 XAML 文本：id 通过读取器填充的 `TypeInfo` /
    `AttributeInfo` / `PIMapping` 表来解析。

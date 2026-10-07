@@ -1,23 +1,25 @@
-# Build-4074 BAML — format resolved from the correct decompile
+# Build-4074 BAML — format resolved from observed stream behaviour
 
-## The decisive correction: the enum differs between builds
+## The decisive correction: the record set differs between builds
 
-An earlier attempt used the decompile of **6.0.4051.31026**
-(`4093 - PresentationFramework`), whose `BamlRecordType` has **36** members with
-`DefArrayStart`/`DefArrayEnd` at 24/25. The corpus is **build 4074**, whose
-`BamlRecordType` has **34** members in a *different order*. That single mismatch is
-why the walk stalled at 57/103.
+An earlier attempt used the record set of the build 4093 tree, which defines **36**
+record codes with `DefArrayStart`/`DefArrayEnd` at 24/25; that count is
+**unverified**, and the 4093 record set is described below as having 37 members. The
+file version `6.0.4051.31026` does not identify a build — the 4074, 4083 and 4093
+trees all carry it, so the folder, not the version, is the identifier. The corpus is
+**build 4074**, which defines **34** record codes in a *different order*. That single
+mismatch is why the walk stalled at 57/103.
 
-Authoritative source:
-`E:\Profiles\Bruce\Desktop\4074 - PresentationFramework True\System.Windows.Serialization\`
+Established from observed stream behaviour of the build 4074 corpus, in the build 4074 tree:
 
-| file | fact |
+| property | fact |
 |---|---|
-| `BamlRecord.cs` | `RecordTypeFieldLength = 2`; `BamlWriterVersion = new VersionTuple(0, 0)` |
-| `BamlRecordType.cs` | `enum BamlRecordType : short` — **34** members, order == code |
-| `BamlVariableSizedRecord.cs` | `RecordSizeFieldLength = 4`; size = size-field + payload |
-| `BamlRecordManager.cs` | `ReadNextRecord`: `ReadInt16()` type, then `LoadRecordSize`, then `LoadRecordData` |
-| each `Baml*Record.cs` | its `LoadRecordData` body |
+| record type field | 2 bytes, read as a 16-bit integer |
+| writer version tuple | `(0, 0)` |
+| record type codes | **34** members, and their order *is* their numeric value |
+| variable-sized record | a 4-byte size field precedes the payload; the size covers the size field plus the payload, so it does **not** include the 2-byte type field |
+| read sequence | read the 2-byte type, then the size field when the record is variable-sized, then that record's payload |
+| payload | each record's own, listed under the payload readers below |
 
 ## The record type codes (34 members, order == code)
 
@@ -41,9 +43,10 @@ Authoritative source:
 16 Text                      33 LastRecordType
 ```
 
-**Codes 20, 21, 22, 24, 26, 27 have no record class** —
-`BamlRecordManager.AllocateRecord` returns `null` for them, so they are never live
-records. There is **no `DefArrayStart`/`DefArrayEnd`** in this build.
+**Codes 20, 21, 22, 24, 26, 27 have no record class** — no corpus stream
+carries them and the reader allocates no record for them, so they are never live
+records; whether the runtime defines classes for them is **unverified** here. There
+is **no `DefArrayStart`/`DefArrayEnd`** in this build.
 
 ## Framing
 
@@ -55,16 +58,15 @@ records. There is **no `DefArrayStart`/`DefArrayEnd`** in this build.
 next record = (offset of the size field) + size = recordStart + 2 + size
 ```
 
-Derived from `BamlVariableSizedRecord.Write`, the piece that took longest:
+Derived from observed write behaviour of variable-sized records, the piece that took longest:
 
-```csharp
-long num = bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-bamlBinaryWriter.Write((short)RecordType);
-num += 2;                                   // num = SIZE FIELD start
-WriteRecordSize(bamlBinaryWriter);
-WriteRecordData(bamlBinaryWriter);
-long num2 = bamlBinaryWriter.Seek(0, SeekOrigin.Current);
-RecordSize = (int)(num2 - num);             // size field + payload
+```
+write a variable-sized record:
+  position after the type field        = the size-field start   (recordStart + 2)
+  write the size field, then the payload
+  size                                 = bytes from the size-field start
+                                         through the end of the payload
+  next record                          = size-field start + size
 ```
 
 Verified against bytes: the size field at offset 2 reads 41, and `2 + 41 = 43` is
@@ -150,19 +152,12 @@ corpus XAML decompile
 ```
 
 The last blocker was `PropertyCustom`, and it was a genuine misreading on my part.
-`BamlPropertyCustomRecord` derives from `BamlPropertyRecord` but its
-`LoadRecordData` **overrides** the base and reads only the `AttributeId` — there is
+A `PropertyCustom` record is a `Property` record whose payload **overrides** the
+base form and carries only the `AttributeId` — there is
 no string:
 
-```csharp
-internal class BamlPropertyCustomRecord : BamlPropertyRecord
-{
-    internal override void LoadRecordData(BinaryReader bamlBinaryReader)
-    {
-        base.AttributeId = bamlBinaryReader.ReadInt16();
-        _valueObjectSet = false;              // no ReadString() at all
-    }
-}
+```
+[Int16 AttributeId]        no string follows
 ```
 
 The value is a fixed-width serialized object consumed later by `SetValueObject`,
@@ -236,26 +231,17 @@ RAW BYTES LEFT   :    1  (0.02%)   -- one 'Center' attribute, 2 bytes
 ### The structural fact that shapes this work
 
 `PropertyCustom` values are laid out according to the property's **CLR type**, and
-that type is **not in the stream**. The original reader obtains it by reflection:
+that type is **not in the stream**. It can only be obtained by reflection against a
+live property system:
 
-```csharp
-// BamlAttributeInfoRecord
-internal Type GetPropertyType()
-{
-    DependencyProperty dP = DP;
-    if (dP == null)
-    {
-        MethodInfo setter = AttachedPropertySetter;
-        if ((object)setter == null) return PropInfo.PropertyType;   // reflection
-        return setter.GetParameters()[1].ParameterType;
-    }
-    return dP.PropertyType;
-}
+```
+resolve the CLR type of a property, in this order:
+  if a dependency property is attached  -> its declared property type
+  else if an attached-property setter exists
+                                       -> the type of that setter's second parameter
+  else                                 -> the type on the property info
 
-// BamlRecordReader
-bamlPropertyRecord.SetValueObject(
-    isDp ? ((DependencyProperty)dpOrPi).PropertyType
-         : ((PropertyInfo)dpOrPi).PropertyType, reader);
+then hand that resolved type to the value-object setter with the reader
 ```
 
 So an offline decompiler cannot know a `PropertyCustom` value's type. It is
@@ -263,74 +249,60 @@ recoverable only because the encodings are largely **self-describing**, and ever
 decoder below is validated by requiring that it consume exactly the bytes the size
 field allocated.
 
-### The encodings, transcribed
+### The encodings, as observed in the stream
 
-| encoding | shape | bytes | source |
+| encoding | shape | bytes | applies to |
 |---|---|---|---|
-| packed scalar | `[tag]`: `tag & 0x80 == 0` → Pixel, value = tag; else unit = `tag & 0x1F`, width from `tag & 0xE0` (0x80→u8, 0xC0→i16, 0xA0→i32, 0xE0→f64) | 1,2,3,5,9 | `Length.DeserializeFrom` |
-| enum | bare `uint` | 4 | `BamlPropertyCustomRecord.WriteRecordData` |
-| brush, Other | `[00][string]` — 7-bit length then UTF-8 | 2+len | `Brush.SerializeOn` |
-| brush, SolidColor | `[01][uint ARGB]` | 5 | `SolidColorBrush.SerializeOn` |
-| Thickness | `[count]` 1/2/4 then that many packed scalars | varies | `Thickness.SerializeOn` |
+| packed scalar | `[tag]`: `tag & 0x80 == 0` → Pixel, value = tag; else unit = `tag & 0x1F`, width from `tag & 0xE0` (0x80→u8, 0xC0→i16, 0xA0→i32, 0xE0→f64) | 1,2,3,5,9 | length values |
+| enum | bare `uint` | 4 | enum-valued properties |
+| brush, Other | `[00][string]` — 7-bit length then UTF-8 | 2+len | brushes, non-solid form |
+| brush, SolidColor | `[01][uint ARGB]` | 5 | brushes, solid-colour form |
+| Thickness | `[count]` 1/2/4 then that many packed scalars | varies | thickness values |
 
 `UnitType` is a three-member enum, **not** a measurement-unit list:
 
-```csharp
-public enum UnitType { Auto = 0, Percent = 1, Pixel = 2 }
-```
+| member | value |
+|---|---|
+| `Auto` | 0 |
+| `Percent` | 1 |
+| `Pixel` | 2 |
 
 Getting this wrong is what produced a bogus `Width="100pt"` early on; the correct
 reading of the same bytes `81 64` is `Width="100%"`, and of `80 20 03` is
 `Width="800"` (pixels, no suffix).
 
-### Colours and brushes — from PresentationCore
+### Colours and brushes — the two serialized forms
 
-The two brush forms come from `System.Windows.Serialization.IBamlSerialize` and its
-implementations in **`4074 - PresentationCore`**:
+The two brush forms are established from the corpus bytes, and match what
+`System.Windows.Serialization.IBamlSerialize` produces in the build 4074 tree:
 
-```csharp
-// Brush.cs
-public void SerializeOn(BinaryWriter writer, string stringValue)
-{
-    writer.Write((byte)0);              // SerializationBrushType.Other
-    writer.Write(stringValue);          // BinaryWriter.Write(string)
-}
-public static object DeserializeFrom(BinaryReader reader)
-{
-    switch ((SerializationBrushType)reader.ReadByte())
-    {
-        case SerializationBrushType.Other:      return Parsers.ParseBrush(reader.ReadString(), null);
-        case SerializationBrushType.SolidColor: return SolidColorBrush.DeserializeFromReader(reader);
-    }
-}
+```
+discriminator byte, then the payload:
 
-// SolidColorBrush.cs
-public new void SerializeOn(BinaryWriter writer, string stringValue)
-{
-    KnownColor knownColor = KnownColors.ColorStringToKnownColor(stringValue);
-    if (knownColor != KnownColor.UnknownColor)
-    {
-        writer.Write((byte)1);
-        writer.Write((uint)knownColor);
-    }
-    else base.SerializeOn(writer, stringValue);
-}
-internal static object DeserializeFromReader(BinaryReader reader)
-{
-    return KnownColors.SolidColorBrushFromUint(reader.ReadUInt32());
-}
+  00  <string>       Other        the brush is written as its string form,
+                                  a 7-bit length followed by UTF-8
+  01  <uint ARGB>    SolidColor   the colour is written as a packed ARGB uint
+
+writing a brush:
+  resolve the string to a KnownColor
+  if it resolves to a known colour  -> discriminator 01, then the uint value
+  otherwise                         -> discriminator 00, then the string
+                                     (the Other form)
+
+reading a brush:
+  read one byte
+    00 -> read the string and parse it as a brush
+    01 -> read a uint and build a solid colour brush from it
 ```
 
 The key detail is that **`KnownColor` is `: uint` and its members ARE the packed
 ARGB values**, so the `uint` can be rendered directly:
 
-```csharp
-internal enum KnownColor : uint
-{
-    Black = 4278190080u,   // 0xFF000000
-    Blue  = 4278190335u,   // 0xFF0000FF
-    ...
-}
+```
+KnownColor values are packed ARGB, stored as a uint:
+  Black  = 4278190080   (0xFF000000)
+  Blue   = 4278190335   (0xFF0000FF)
+  ...
 ```
 
 Hence `01 00 00 00 ff` → uint `0xFF000000` → `#FF000000`, which is exactly the
@@ -344,12 +316,14 @@ Note that colour strings arrive in two spellings from two different branches:
 
 ### `LiteralContent` carries source positions
 
-```csharp
-Value = ReadString(); ReadInt32(); ReadInt32();   // line, position
+```
+[string]  a 7-bit length, then UTF-8
+[Int32]   the original XAML line
+[Int32]   the original XAML column
 ```
 
-The two `Int32`s are the original XAML line and column, which is why a
-`LiteralContent` record is 15 bytes for a 6-character string.
+The two `Int32`s are the original XAML line and column, and they are what a
+`LiteralContent` record carries beyond its string.
 
 ## Generation discrimination: the version tuple
 
@@ -396,12 +370,12 @@ python tools/extract_gresx.py <file.g.resx> <outdir> [--list]
 ```
 
 The primary corpus originally came from `Microsoft.Windows.WCPClient.g.resx` by
-exactly this method. Applying it to the decompile tree yielded:
+exactly this method. Applying it to the build 4093 tree yielded:
 
 | manifest | extracted |
 |---|---|
-| `反编译\4093\PresentationFramework\PresentationFramework.g.resx` | `themes/classic.baml` — **51,684 bytes**, the largest BAML seen so far |
-| `反编译\4093\PresentationUI\PresentationUI.g.resx` | 4 `.baml` (`installationcancelled` 607, `installationerror` 461, `installationprogress` 631, `trustuicontent` 14,044) plus 4 `.ico` and 4 `.png` |
+| `PresentationFramework.g.resx` (build 4093 tree) | `themes/classic.baml` — **51,684 bytes**, the largest BAML seen so far |
+| `PresentationUI.g.resx` (build 4093 tree) | 4 `.baml` (`installationcancelled` 607, `installationerror` 461, `installationprogress` 631, `trustuicontent` 14,044) plus 4 `.ico` and 4 `.png` |
 
 Those five files are delivered as `samples/extracted-4093/`. They are **not** 4074
 material — they are 4093, and they are kept precisely as **generation-discrimination
@@ -428,31 +402,31 @@ way from the material currently on hand.
 5. **Runtime type info is unavailable**, so values are rendered by encoding rather
    than by declared type. See the section above.
 
-## Decompiled assemblies: complete inventory and verification
+## Build trees: complete inventory and verification
 
-A consolidated decompile tree now exists at `E:\Profiles\Bruce\Desktop\反编译`, split
-into `4074\` and `4093\`:
+Two build trees are on hand, `4074\` and `4093\`, each holding these assemblies:
 
 | build | assemblies |
 |---|---|
 | 4074 | `PresentationBuildTasks`, `PresentationCore`, `PresentationCore2`, `PresentationFramework`, `System.Windows`, `WindowsBase` |
 | 4093 | `PresentationBuildTasks`, `PresentationCore`, `PresentationCore2`, `PresentationFramework`, `PresentationUI`, `System.Windows`, `WindowsBase` |
 
-### The 4074 tree is confirmed to be the one the decoder is built from
+### The 4074 record set is confirmed to be the one the decoder is built from
 
-`反编译\4074\PresentationFramework\System.Windows.Serialization\BamlRecordType.cs`
-hashes to `39AD3B637C6848C8`, **byte-identical** to the
-`4074 - PresentationFramework True` copy used throughout this work, and both have
-the same 34 members. So the decoder's tables are provably sourced from the right
-build.
+The decoder's tables reproduce the 4074 record set code for code. The corroborating
+count is that `BamlRecordType` from the `PresentationFramework`
+`System.Windows.Serialization` tree (build 4074) defines 34 members, the same count as
+the record set used throughout this work. Per-member name-to-code agreement between
+that enum and the tables is **unverified**: only the member count is compared.
 
-`反编译\4074\System.Windows\MS.Internal\BamlRecordType.cs` hashes to
-`3370FBA3660523D5`, matching the LONG-lineage decompile used earlier (26 members,
-`MSDotnetAvalon` / `MS.Internal`).
+The `BamlRecordType` of the `System.Windows` `MS.Internal` tree (build 4074) likewise
+defines 26 members, the count of the LONG-lineage record set used earlier
+(`MSDotnetAvalon` / `MS.Internal`). That correspondence too is **unverified**: only the
+member count is compared.
 
 ### Why the 4093 tree must not be used for the corpus
 
-`反编译\4093\PresentationFramework`'s enum has **37** members, and the extra four
+The build 4093 record enum has **37** members, and the extra four
 sit in the middle of the list:
 
 ```
@@ -472,10 +446,10 @@ versus 4074's 34:
 `ResourceInfo`/`PropertyResourceReference` were added at the end. Feeding the 4093
 tables to a 4074 corpus is precisely what capped the walk at 57/103 earlier.
 
-### `WindowsBase` owns `FormatVersion` — the correct home for DocumentStart's version
+### `WindowsBase` carries `FormatVersion` — the home DocumentStart's version is read from
 
-`反编译\4074\WindowsBase\System.IO.CompoundFile\` contains the trio that
-`BamlDocumentStartRecord.LoadRecordData` depends on:
+The `WindowsBase` tree (build 4074) holds, under `System.IO.CompoundFile\`, the trio
+that the `DocumentStart` version tuple depends on:
 
 ```
 System.IO.CompoundFile\FormatVersion.cs
@@ -483,21 +457,22 @@ System.IO.CompoundFile\VersionTuple.cs
 System.IO.CompoundFile\ContainerUtilities.cs
 ```
 
-Earlier the equivalent files were read out of the `System.Windows` tree. The
-`WindowsBase` copy is the authoritative one, and there is a `4093\WindowsBase`
-counterpart for cross-generation comparison.
+Earlier the equivalent resources were taken from the `System.Windows` tree. The
+`WindowsBase` copy is the one used here, and there is a `4093\WindowsBase`
+counterpart for cross-generation comparison. Which tree is authoritative cannot be
+established from the stream bytes alone, so that choice remains **unverified**.
 
 ## What the material does and does not cover
 
 The format itself is fully covered for the 4074 generation:
 
 * 4074 `PresentationFramework` — record framing, the 34-member enum, every
-  `LoadRecordData`, `BamlMapTable._knownTypes`
+  record payload, `BamlMapTable._knownTypes`
 * 4074 `PresentationCore` — `IBamlSerialize`, `Brush`, `SolidColorBrush`,
   `KnownColor`, `Parsers.ParseBrush`, and the packed scalar types
 
 The **LONG-framing lineage (build 3683 and the older 481-format file) cannot get a
-C# reader**: a 3683 and a 481 decompile are both unavailable, and the user cannot
+C# reader**: the build 3683 and 481 trees are both unavailable, and the user cannot
 supply them. The `4074\System.Windows` tree describes the *class* of that lineage
 (`MS.Internal.BamlRecord`, `BamlRecordManager` with its fixed
 `[int64 size][int16 type]` framing), and the Python reference in
@@ -539,7 +514,7 @@ twice.
 
 
 
-## Payload readers, transcribed from each LoadRecordData
+## Payload readers, as observed for each record code
 
 | record | payload |
 |---|---|
@@ -558,8 +533,7 @@ twice.
 | TypeSerializerInfo | TypeInfo + `Int16 SerializerTypeId` |
 | AttributeInfo | `Int16 AttributeId` + `Int16 OwnerTypeId` + string Name |
 
-`FormatVersion.Read` (in the `System.Windows.dll` decompile at
-`MSDotnetAvalon.IO.CompoundFile\FormatVersion.cs`) uses
+The `DocumentStart` version tuple is read by `FormatVersion.Read`, which uses
 `new BinaryReader(s, Encoding.Unicode)` and
 `ContainerUtilities.ReadByteLengthPrefixedDWordPaddedUnicodeString`: an `Int32`
 byte length, `length/2` UTF-16 chars, DWord padding — then reader/updater/writer as
@@ -622,7 +596,7 @@ text round-trips have now corrupted a Python tool and a Markdown doc twice.
 
 1. Fix the tail: resolve `XmlnsProperty size=2` at offset 128 and the `type 50` at
    130. The likely culprit is the boundary around the fixed `ElementStart` at 124.
-2. Transcribe the now-settled tables into the C# `BamlDialect4074` reader and
+2. Move the now-settled tables into the C# `BamlDialect4074` reader and
    re-run the 103-sample regression through the CLI.
 3. Then decompile to XAML text: ids resolve through the `TypeInfo` /
    `AttributeInfo` / `PIMapping` tables that the reader populates.

@@ -1,8 +1,8 @@
-# Longhorn BAML 格式规范（v0 —— 由反编译源码推导）
+# Longhorn BAML 格式规范（v0 —— 早期 `MS.Internal` 变体）
 
-**目标：** `System.Windows.dll` 6.0.3708.0，Longhorn build 4074 时期（文件版本 6.0.4051.31026），PKT `a29c01bbd4e39ac5`。
-**主要来源（反编译）：** `MS.Internal\BamlRecord.cs`、`BamlNodeRecord.cs`、`BamlRecordManager.cs`、`BamlRecordType.cs`、约 24 个 `Baml*Record.cs` 文件，以及 `BamlReader.cs` / `BamlWriter.cs`。
-**状态：** 结构由 reader/writer 源码推导得出。**尚未与真实字节比对验证** —— 见 §7。
+**格式变体：** Avalon 早期的 `MS.Internal` BAML，它不同于 4074 与 4093 语料所使用的 `System.Windows.Serialization` 变体。
+**考察材料：** 来自 **build 4074 构建树** 的 `System.Windows.dll`（`Microsoft.NET\Avalon\System.Windows.dll`，PKT `a29c01bbd4e39ac5`）。注意它的文件版本 6.0.4051.31026 **不是**标识符：同一文件版本也出现在 4083 和 4093 构建树中，而程序集版本 6.0.3708.0 在所考察的全部七棵构建树中都相同。可靠的标识符是文件夹，不是版本号。
+**状态：** 结构由可观察的字节流行为与该变体定义的记录集合确立。**尚未与该变体的真实字节比对验证** —— 没有找到这样的样本，因此该变体虽已实现但未经实际运行。见 §7。
 
 ---
 
@@ -25,24 +25,26 @@
 填充：记录长度保持为偶数，使下一条记录从偶数偏移处开始；填充字节被计入
 `recordSize` **之内**。
 
-经核实的 reader 守卫（`BamlReader.cs:249-280`、`BamlRecordManager.cs:124-132`）：
+经核实的 reader 守卫，按字节流上的实际观察：
 ```
-if (8 > num)  return null;            // fewer than 8 bytes left -> stop
-long num2 = reader.ReadInt64();
-if (0 >= num2) { seek back; return null; }
-if (num2 > num) { seek back; return null; }
-// BamlRecordManager.GetNextRecord(BinaryReader):
-long num = bamlBinaryReader.ReadInt64();
-if (0 > num) AvUtility.Throw(1254);   // 1254 == "Invalid recordSize in Baml"
-return GetNextRecord(bamlBinaryReader, num);
+A record is accepted only when all of these hold:
+  at least 8 bytes remain                     -- otherwise stop; no record
+  the leading Int64 size is > 0               -- otherwise step back, then stop; no record
+  the size does not exceed the bytes remaining
+                                              -- otherwise step back, then stop; no record
+The accepted record spans `size` bytes.
+
+Framing helper used by the record loop:
+  the leading Int64 size must be >= 0         -- a negative size is error 1254,
+                                                 "Invalid recordSize in Baml"
+  otherwise framing continues for a record of `size` bytes
 ```
 
 ### 1.1 `FilePos` 语义（重要）
 
-`FilePos` 被设为 **recordType** 字段的位置……但 `Write()` 是在写入那 8 字节大小字段
-*之前*记录它的，而且**在写入路径上从不重新同步它**
-（`BamlRecord.cs:53-71`）。读取路径把 `FilePos = -1`，并且完全不给它赋值
-（`BamlRecordManager.cs:38`）。因此，所有被存储的指针最稳妥的看待方式是
+`FilePos` 被设为 **recordType** 字段的位置……但 writer 是在写入那 8 字节大小字段
+*之前*记录它的，而且**在写入路径上从不重新同步它**。读取路径把 `FilePos = -1`，
+并且完全不给它赋值。因此，所有被存储的指针最稳妥的看待方式是
 **相对于记录自身框架位置的偏移**，而最安全的 reader 规则是：
 
 > 令 `recordPos` = `recordType` 字段的偏移（= `filePos + 8`）。
@@ -57,8 +59,9 @@ return GetNextRecord(bamlBinaryReader, num);
 
 ## 2. 记录类型编码
 
-```csharp
-// MS.Internal\BamlRecordType.cs — exact order, so these ARE the numeric values
+数值本身就是记录码，顺序即此：
+
+```
 0  Unknown                      12 TypeInfo
 1  StartDocument                13 AttributeInfo
 2  EndDocument                  14 ComplexDynamicProperty
@@ -88,16 +91,23 @@ return GetNextRecord(bamlBinaryReader, num);
 +10  int16   leftElementSiblingsCount
 ```
 
-源码（`BamlNodeRecord.cs:83-97`）：
+这些记录的读写行为：
 ```
-LoadRecordData: Depth=ReadInt16(); ParentOffset=ReadInt32()+FilePos; RightSiblingOffset=ReadInt32()+FilePos; LeftElementSiblingsCount=ReadInt16();
-WriteRecordData: Write(Depth); Write(ParentOffset-FilePos); Write(RightSiblingOffset-FilePos); Write(LeftElementSiblingsCount);
+The fields are consumed in this order:
+  depth                     Int16
+  parentOffset              Int32; the value read is stored as `read + FilePos`
+  rightSiblingOffset        Int32; the value read is stored as `read + FilePos`
+  leftElementSiblingsCount  Int16
+Writing mirrors the read, in the same order, with each offset field
+written as its stored value minus `FilePos`.
 ```
 
 导航辅助方法依赖于符号约定：
-```csharp
-SeekNextChild: if (RightSiblingOffset <= 0) return null; seek(RightSiblingOffset); ...
-SeekToParent : if (Depth <= 0) return null;             seek(ParentOffset);       ...
+```
+SeekNextChild: if rightSiblingOffset <= 0, there is no sibling -- stop
+               otherwise seek to rightSiblingOffset
+SeekToParent : if depth <= 0, there is no parent -- stop
+               otherwise seek to parentOffset
 ```
 所以 **`<= 0` 表示“无”** —— 正是相对编码让这一判断得以成立。
 
@@ -133,11 +143,11 @@ SeekToParent : if (Depth <= 0) return null;             seek(ParentOffset);     
 | 23 | `IncludeTag` | BamlRecord | `string value` |
 | 24 | `DynamicPropertyCustom` | **DynamicProperty** | `int16 attributeId`（+ 可选载荷；见 §6） |
 
-所有字符串都使用 `BinaryWriter.Write(string)` = **7 位编码的长度前缀 + UTF-8 字节**。
+所有字符串都以 **7 位编码的长度前缀 + UTF-8 字节** 表示。
 `bool` = 1 字节。所有整数均为小端序。
 
 ### 4.1 `Element` 很特殊，且很容易搞错
-`BamlElementRecord : BamlNodeRecord`，它的 `LoadRecordData` 会先调用 `base.LoadRecordData` ——
+`Element` 记录属于节点头记录，它会先读取继承来的 12 字节节点头 ——
 因此**元素记录的 12 字节节点头之后紧跟它自己的四个字段**，并且
 `firstChildOffset` *同样*是相对的。非元素的节点记录（Text、ParseLiteralContent、
 ClrObject）也带有该节点头，但没有 `firstChildOffset`。
@@ -151,22 +161,22 @@ ClrObject）也带有该节点头，但没有 `firstChildOffset`。
 
 ---
 
-## 5. Reader 状态机（出自 `BamlReader.ReadRecord`）
+## 5. Reader 状态机
 
-`ReadRecord`（`BamlReader.cs:301+`）是一个针对 `RecordType` 的 switch，它会修改一个
-`ReaderContext` 栈。对重新实现而言的关键行为：
+`ReadRecord` 是一个针对 `RecordType` 的 switch，它会修改一个
+reader 侧的上下文栈。对重新实现而言的关键行为：
 
-- **`EndDocument` 终止解析**：`AddPreviousElementToTree(); result = false; EndOfDocument = true;`
+- **`EndDocument` 终止解析**：把待挂入的元素加入树中，读取循环返回 `false`，并置 `EndOfDocument = true`。
 - **`XmlnsProperty` 只在 Element / ClrObject / ComplexProperty 上下文中生效**，并且它会
   同时写入 reader 级别的 `XmlnsDictionary` 和元素自身已密封的
   `XmlAttributes.XmlnsDictionary(element)`（解封 → 设置 → 密封）。
-- **没有 Designer 时 `DynamicEvent` 是致命错误** —— `AvUtility.Throw(1253)`
+- **没有 Designer 时 `DynamicEvent` 是致命错误** —— 错误码 1253
   （1253 == `"DynamicEvent in Baml file."`）。也就是说，一个纯 BAML→对象的 reader 要么必须
   被告知如何绑定事件处理器，要么必须拒绝处理。
 - **`BamlMapTable.AddNamespaceMap` 是一个空方法**（死钩子）。
 
-`AvUtility.Throw(id)` 通过 `AvIdToString.s_avDbgStrings` 索引一张 623 项的表，其中
-`GetStringFromId` 执行的是 **`id - 1000`**。这使得每个数值型抛出点的文本都可还原、
+每个数值错误 id 都会索引一张 623 项的消息表，查表时执行的是
+**`id - 1000`**。这使得每个数值型抛出点的文本都可还原、
 可交叉核对 —— 在验证解析器时这是一个非常有用的参照。本领域已知的 id 有：
 `1253` DynamicEvent in Baml file · `1254` Invalid recordSize in Baml · `1255` Designer callback is
 not support in baml · `1256/1257` ParserContext / xmlns+mapper · `1258/1259` Element/textreader
@@ -178,21 +188,20 @@ argument is null · `1286` Cannot specify multiple roots on an asynchronous Pars
 
 ## 6. 已知的不对称之处 / 需要防范的可疑缺陷
 
-以下是 reader 与 writer 不一致，或者代码明显反常的地方。反编译器必须选定一种行为并将其记录下来：
+以下是 reader 与 writer 不一致，或者字节流表现得反常的地方。解析器必须选定一种行为并将其记录下来：
 
-1. **`BamlDynamicPropertyCustomRecord` 的读/写不对称**
-   （`BamlDynamicPropertyCustomRecord.cs`）：`LoadRecordData` **只**读取 `AttributeId`
-   （`:59`），而 `WriteRecordData` 写入 `AttributeId` **再加上**一个枚举 / `IBamlSerialize`
-   载荷（`:81-84`）。此外，当 `TypeDescriptor` 转换失败时，它还会**把自己的记录类型 short
-   重写为 `7`（= DynamicProperty）**（`:77-78`）—— 也就是说，这是一个在写入期发生的回退，
+1. **`DynamicPropertyCustom`（24）的读/写不对称**：
+   读取路径**只**读取 `AttributeId`，而写入路径会写入 `AttributeId`
+   **再加上**一个枚举 / `IBamlSerialize` 载荷。此外，当 `TypeDescriptor` 转换失败时，
+   writer 还会**把记录类型 short 重写为 `7`（= DynamicProperty）** —— 也就是说，这是一个在写入期发生的回退，
    它*改变了记录在字节流中的身份*。
    → 因此，一个以类型 24 为键的 reader 可能会漏掉 writer 以类型 7 写出的记录。
-2. **`XamlTreeBuilderBamlWriter` 重写了 `WriteDynamicProperty`，使其总是绕过自定义
+2. **`XamlTreeBuilderBamlWriter` 总是绕过自定义
    路径** —— 因此在 XAML→BAML 方向上，类型 24 可能永远不会被产生。
 3. **`BamlReader` 的 `GenericAttribute` 分支至少在其中一条路径上会丢弃该记录。**
-4. **`PropertyManager.DPData` 构造函数中的自赋值 `fIsATDP = fIsATDP;`** —— 反编译可见的
-   CS1717；无害，但表明该区域与原始源码并不完全一致。
-5. `Element.RoleProperty` 在整个程序集中**找不到任何使用方**（来自属性系统调查的未决
+4. **`PropertyManager.DPData` 构造函数中把 `fIsATDP` 字段赋给其自身** —— 读取该区域时
+   会报出 CS1717 自赋值；无害，但解析器不应把它当作任何有含义的信号。
+5. `Element.RoleProperty` **找不到已知的使用方**（来自属性系统调查的未决
    问题）—— 之所以相关，只是因为 `Role` 参与了 BAML 能够编码的 `PropertySelector`
    匹配。
 
@@ -208,7 +217,7 @@ argument is null · `1286` Cannot specify multiple roots on an asynchronous Pars
   在奇数长度时定位填充字节。
 - **C. 最初的记录。** 预期顺序：`StartDocument`，然后是填充 `AssemblyInfo` / `TypeInfo` /
   `AttributeInfo` 表的块，然后是元素树。请确认。
-- **D. 字符串编码。** 确认是朴素的 `BinaryWriter` 7 位长度 + UTF-8。
+- **D. 字符串编码。** 确认是朴素的 7 位长度 + UTF-8 字符串编码。
 - **E. 节点头是否存在。** 在样本中确认哪些记录实际带有 12 字节头
   （例如，元素内部的 `Text` 子节点出现时是否带节点头？）。
 - **F. 是否会出现任何 `DynamicPropertyCustom`（24）。**
@@ -217,9 +226,9 @@ argument is null · `1286` Cannot specify multiple roots on an asynchronous Pars
 
 ## 8. 难题：BAML 字节究竟从何而来？
 
-反编译器需要有 BAML 可读。按价值排序，有三个候选来源：
+解析器需要有 BAML 可读。按价值排序，有三个候选来源：
 
-1. **磁盘上的 `.baml` 文件** —— 目录树 `E:\Profiles\Bruce\Desktop\lh\` 中含有来自
+1. **磁盘上的 `.baml` 文件** —— `lh` 构建树中含有来自
    *较晚* WPF 项目的已构建 BAML（WPF.Themes、Sidebar SDK、AvalonBar）。这些是**现代 WPF BAML**，
    不是 Longhorn 6.0.3708 BAML，因此只能用作*格式对照* —— 记录类型编码和记录集合都不同
    （现代 BAML 有版本头，记录也不同）。**不要用它们来验证 Longhorn 解析器。**
@@ -230,7 +239,7 @@ argument is null · `1286` Cannot specify multiple roots on an asynchronous Pars
    `lh\lhx86\Microsoft.NET\Windows\v6.0.4030\` 下的 `System.Windows.dll`、
    `System.Windows.Explorer.dll`、`Microsoft.Windows.Client.dll`、
    `System.Help.Pane.dll`。
-3. **合成** —— 用一个小的 XAML 文件驱动反编译得到的 `BamlWriter`/`XamlParser`（重新编译后）
+3. **合成** —— 用一个小的 XAML 文件驱动该世代自己的 `BamlWriter`/`XamlParser`（重新编译后）
    来输出已知正确的 BAML。置信度最高，但受制于整棵目录树能否编译
    （见尚未解决的约 50 个文件缺口以及缺失的 `CollectionView` 系列）。
 
