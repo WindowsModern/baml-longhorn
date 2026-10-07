@@ -31,8 +31,10 @@ would produce wrong output for WPF assemblies.
 
 ## Building
 
-The plugin references the ILSpy contracts, so it must target **net10.0** — the framework ILSpy
-10.1 and 11.1 themselves target. Point it at an ILSpy installation:
+The plugin references the ILSpy contracts, so it targets **net10.0-windows** — the framework
+ILSpy 10.1.0.8386 and 11.1 target. (net9.0 is not possible: the contracts reference
+`System.Runtime` 10.0 and the compiler enforces CS1705 on that.) Point it at an ILSpy
+installation:
 
 ```
 dotnet build src/LonghornBaml.Plugin/LonghornBaml.Plugin.csproj -c Release ^
@@ -43,31 +45,33 @@ Then copy `LonghornBaml.dll` into that installation's `Plugins` folder and resta
 (The official plugin ships as `ILSpy.BamlDecompiler.Plugin.dll` beside `ILSpy.dll`; a plugin is
 just a library MEF discovers there.)
 
-Requires the **.NET 10 SDK**. Only the net8.0 and net9.0 targeting packs are present on the
-machine this was developed on — the .NET 10 *runtime* is installed, but not the SDK — so the
-build was not run here. What that means for confidence in the code:
+Requires the **.NET 10 SDK**.
 
-* **The decode path is verified.** The plugin calls the decoder through exactly one seam,
-  `LonghornBamlDecoder.ToXaml`, and that logic was compiled and exercised over all 241 corpus
-  files: 103/103, 133/133, 5/5 decoded, with `HelloWorld-AvalonCTP-0.2` correctly refused.
-  The decoder core has no framework dependencies, so it compiles unchanged for net9.0; all 24
-  of its source files were checked for Windows Forms, registry, `System.Drawing` and other
-  Windows-only API and none is used.
-* **The ILSpy interface implementation is not verified**, because the contracts can only be
-  referenced from net10.0 and only a net9.0 toolchain is available. The signatures were read
-  out of `ILSpy.dll` with `MetadataLoadContext` rather than guessed, and the one contract used
-  is the same one the official plugin implements:
+## Verification status
 
-  ```
-  interface ICSharpCode.ILSpy.IResourceFileHandler
-      string EntryType { get; }
-      bool CanHandle(string name, ResourceFileHandlerContext context)
-      string WriteResourceToFile(LoadedAssembly assembly, string fileName,
-                                 Stream stream, ResourceFileHandlerContext context)
-  ```
+**Builds clean** against `ILSpy_binaries_10.1.0.8386-x64`, and the output implements
+`ICSharpCode.ILSpy.IResourceFileHandler` — the compiler checked every signature rather than
+this being asserted.
 
-  That is a three-member interface with no ambiguity, but it has not been compiled against, so
-  treat the first build as the real check.
+**The decode path is verified.** The plugin calls the decoder through exactly one seam,
+`LonghornBamlDecoder.ToXaml`, and that logic was compiled and exercised over all 241 corpus
+files: 103/103, 133/133 and 5/5 decoded, with `HelloWorld-AvalonCTP-0.2` correctly refused. The
+decoder core has no framework dependencies — all 24 of its source files were checked for
+Windows Forms, registry, `System.Drawing` and other Windows-only API and none is used — so it
+compiles unchanged for net10.0.
+
+**Not verified: that ILSpy actually loads and discovers the plugin.** No ILSpy run was
+performed, so MEF discovery of the exported type is untested. The contract is right and the
+reference list matches the official plugin's, but the end-to-end check is loading it once.
+
+Two details that were read out of the shipped assemblies rather than guessed, because both are
+easy to get wrong and fail silently:
+
+* `ExportAttribute` comes from **`System.Composition.AttributedModel`**, not
+  `System.ComponentModel.Composition`. Both MEF flavours define that attribute, and the wrong
+  one compiles and is then never discovered.
+* `LoadedAssembly` lives in **`ICSharpCode.ILSpyX`**, not `ICSharpCode.ILSpy`, even though the
+  interface that uses it is in the latter.
 
 ## Why the decoder is compiled in, not referenced
 

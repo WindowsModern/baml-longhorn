@@ -3,11 +3,9 @@
   <!--
     ILSpy plugin layout.
 
-    ILSpy itself runs on net10.0, but a plugin is a library that the ILSpy process loads, so
-    it does not have to target the same framework: an assembly built for net9.0 loads and runs
-    on the net10 CLR. Targeting net9.0 is what makes this buildable here, because only the
-    net8.0 and net9.0 targeting packs are installed, and it is verifiably sufficient: the
-    build resolves the ILSpy 10.1 contracts cleanly.
+    net10.0-windows, matching ILSpy 10.1.0.8386 itself. The contracts reference
+    System.Runtime 10.0, and the compiler enforces CS1705 on that, so targeting net9.0 was
+    not possible; net10.0-windows is both required and correct.
 
     ILSpyBinDir points at an ILSpy installation whose DLLs supply the plugin contracts. Set it
     on the command line or in the environment:
@@ -15,20 +13,26 @@
       dotnet build -c Release -p:ILSpyBinDir="C:\path\to\ILSpy"
   -->
   <PropertyGroup>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>LonghornBaml</AssemblyName>
     <RootNamespace>LonghornBaml</RootNamespace>
     <Nullable>disable</Nullable>
     <LangVersion>latest</LangVersion>
     <UseWPF>true</UseWPF>
-    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!--
+      Assembly attributes come from the core library's Properties\AssemblyInfo.cs, which is
+      compiled in with the rest of the decoder, so the SDK must not generate a second set. The
+      two sets are not even the same attributes (the core declares AssemblyTitle and
+      AssemblyCulture, the generator declares AssemblyCompany and AssemblyProduct), which is why
+      the collision reports as CS0579 across several different attribute names.
+    -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
     <Company>baml-longhorn</Company>
     <Product>LonghornBaml</Product>
     <Description>Reads Windows Longhorn / pre-release Avalon BAML inside ILSpy. Distinct from the official WPF BAML plugin, which targets released WPF BAML only.</Description>
-    <!-- MSB3277: the contracts reference net10 assemblies while we compile for net9. Expected
-         and harmless: the CLR unifies them upward at run time. -->
+    <!-- MSB3277: referencing net10 contracts from an older target unifies upward at run time. -->
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <ILSpyBinDir Condition="'$(ILSpyBinDir)' == ''"></ILSpyBinDir>
@@ -36,6 +40,14 @@
 
   <ItemGroup>
     <Compile Include="*.cs" />
+    <!--
+      The core library carries assembly-level attributes in Properties\AssemblyInfo.cs, which
+      collide with the ones this SDK project generates (CS0579). Getting this wrong is easy:
+      the first attempt excluded '..\BamlLonghorn\AssemblyInfo.cs', one level too high, so the
+      exclude silently did nothing and the build kept reporting duplicate attributes. The path
+      was taken from the compiler's own file list rather than assumed.
+    -->
+    <Compile Remove="..\BamlLonghorn\Properties\AssemblyInfo.cs" />
     <!--
       The decoder core is compiled into the plugin rather than referenced.
 
@@ -49,7 +61,7 @@
       plugin can never disagree about how a stream is decoded.
     -->
     <Compile Include="..\BamlLonghorn\**\*.cs"
-             Exclude="..\BamlLonghorn\obj\**\*.cs;..\BamlLonghorn\bin\**\*.cs" />
+             Exclude="..\BamlLonghorn\obj\**\*.cs;..\BamlLonghorn\bin\**\*.cs;..\BamlLonghorn\AssemblyInfo.cs;..\BamlLonghorn\.NETFramework*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -63,6 +75,16 @@
     </Reference>
     <Reference Include="ICSharpCode.Decompiler">
       <HintPath>$(ILSpyBinDir)\ICSharpCode.Decompiler.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!--
+      ExportAttribute comes from System.Composition.AttributedModel, not from
+      System.ComponentModel.Composition. This was read out of the shipped BAML plugin's own
+      reference list rather than assumed: the two MEF flavours both define an ExportAttribute,
+      and choosing the wrong one yields an attribute that compiles and is then never discovered.
+    -->
+    <Reference Include="System.Composition.AttributedModel">
+      <HintPath>$(ILSpyBinDir)\System.Composition.AttributedModel.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

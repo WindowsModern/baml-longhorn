@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using BamlLonghorn;
 using ICSharpCode.ILSpy;
+using ICSharpCode.ILSpyX;
 
 namespace LonghornBaml
 {
