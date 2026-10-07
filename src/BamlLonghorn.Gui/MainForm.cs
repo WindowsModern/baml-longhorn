@@ -29,6 +29,7 @@ namespace BamlLonghorn.Gui
         private readonly TabControl _tabs = new TabControl();
         private readonly TextBox _summary = NewText();
         private readonly TextBox _xaml = NewText();
+        private readonly TextBox _wpfXaml = NewText();
         private readonly TextBox _records = NewText();
         private readonly TextBox _tree = NewText();
         private readonly TextBox _tables = NewText();
@@ -219,9 +220,9 @@ namespace BamlLonghorn.Gui
 
             _menuExit.Text = Localization.T(S.MenuExit);
 
-            string[] tabs = { "TabSummary", "TabXaml", "TabRecords", "TabTree",
+            string[] tabs = { "TabSummary", "TabXaml", "TabWpfXaml", "TabRecords", "TabTree",
                               "TabTables", "TabRecon" };
-            S[] keys = { S.TabSummary, S.TabXaml, S.TabRecords, S.TabTree,
+            S[] keys = { S.TabSummary, S.TabXaml, S.TabWpfXaml, S.TabRecords, S.TabTree,
                          S.TabTables, S.TabRecon };
             for (int i = 0; i < keys.Length && i < _tabs.TabPages.Count; i++)
             {
@@ -266,6 +267,7 @@ namespace BamlLonghorn.Gui
             {
                 _summary.Text = string.Empty;
                 _xaml.Text = string.Empty;
+            _wpfXaml.Text = string.Empty;
                 _records.Text = string.Empty;
                 _tree.Text = string.Empty;
                 _tables.Text = string.Empty;
@@ -530,6 +532,7 @@ namespace BamlLonghorn.Gui
             _tabs.Dock = DockStyle.Fill;
             AddTab("Summary", _summary);
             AddTab("XAML", _xaml);
+            AddTab("WPF XAML", _wpfXaml);
             AddTab("Records", _records);
             AddTab("Tree", _tree);
             AddTab("Tables", _tables);
@@ -802,6 +805,7 @@ namespace BamlLonghorn.Gui
 
                 // clear the other tabs so stale text is never shown
                 _xaml.Text = string.Empty;
+            _wpfXaml.Text = string.Empty;
                 _records.Text = string.Empty;
                 _tree.Text = string.Empty;
                 _tables.Text = string.Empty;
@@ -853,15 +857,21 @@ namespace BamlLonghorn.Gui
             }
         }
 
+        /// <summary>
+        /// Maps a tab index to the view it shows. The order here must match the AddTab calls in
+        /// BuildTabs and the tab caption array in ApplyLanguage; three lists that have to agree is
+        /// a real hazard, and inserting a tab means updating all three.
+        /// </summary>
         private static BamlView ViewOfTab(int index)
         {
             switch (index)
             {
                 case 1: return BamlView.Xaml;
-                case 2: return BamlView.Records;
-                case 3: return BamlView.Tree;
-                case 4: return BamlView.Tables;
-                case 5: return BamlView.Recon;
+                case 2: return BamlView.WpfXaml;
+                case 3: return BamlView.Records;
+                case 4: return BamlView.Tree;
+                case 5: return BamlView.Tables;
+                case 6: return BamlView.Recon;
                 default: return BamlView.Summary;
             }
         }
@@ -871,10 +881,11 @@ namespace BamlLonghorn.Gui
             switch (index)
             {
                 case 1: return _xaml;
-                case 2: return _records;
-                case 3: return _tree;
-                case 4: return _tables;
-                case 5: return _recon;
+                case 2: return _wpfXaml;
+                case 3: return _records;
+                case 4: return _tree;
+                case 5: return _tables;
+                case 6: return _recon;
                 default: return _summary;
             }
         }

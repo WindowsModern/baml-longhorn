@@ -50,6 +50,10 @@
     <Compile Include="BamlFileView.cs" />
     <Compile Include="BamlCustomValue.cs" />
     <Compile Include="BamlBrushExpander.cs" />
+    <Compile Include="LhWpfMappings.cs" />
+    <Compile Include="LhConverter.cs" />
+    <Compile Include="WpfTypeIndex.cs" />
+    <Compile Include="FallbackNames.cs" />
     <Compile Include="BamlXamlWriter.cs" />
     <Compile Include="BamlShortTreeBuilder.cs" />
     <Compile Include="BamlTreeBuilder.cs" />

@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    A small console tool that reports whether a type name exists in WPF assemblies. The
+    converter uses its answer to decide what can be translated, so the decision is made against
+    the framework actually installed rather than a table that goes stale.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>type-resolver</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Resolve.cs" />
+  </ItemGroup>
+</Project>

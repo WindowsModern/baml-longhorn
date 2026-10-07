@@ -32,7 +32,17 @@ namespace BamlLonghorn
         Tables,
 
         /// <summary>Reconnaissance: string tokens and the bytes between them.</summary>
-        Recon
+        Recon,
+
+        /// <summary>
+        /// The decompiled markup converted toward WPF, with a report of what would not convert.
+        ///
+        /// Separate from <see cref="Xaml"/> on purpose: that view is the faithful decompile, and
+        /// this one is a transformation of it. Keeping them apart means the conversion can be
+        /// judged against the document it came from, and a converter bug cannot hide by
+        /// overwriting the evidence.
+        /// </summary>
+        WpfXaml
     }
 
     /// <summary>
@@ -53,6 +63,7 @@ namespace BamlLonghorn
         private string _tables;
         private string _recon;
         private string _summary;
+        private string _wpfXaml;
 
         /// <summary>Full path, or a display name for in-memory data.</summary>
         public string Path { get; private set; }
@@ -222,6 +233,10 @@ namespace BamlLonghorn
                     if (_recon == null) _recon = BuildRecon();
                     return _recon;
 
+                case BamlView.WpfXaml:
+                    if (_wpfXaml == null) _wpfXaml = BuildWpfXaml();
+                    return _wpfXaml;
+
                 default:
                     return string.Empty;
             }
@@ -305,9 +320,96 @@ namespace BamlLonghorn
             return sb.ToString();
         }
 
-        private string BuildXaml()
+        /// <summary>
+        /// Converts the decompiled markup toward WPF and appends a report.
+        ///
+        /// The report is emitted inside the view rather than kept beside it because a converter
+        /// that quietly renames or drops what it cannot handle produces output that looks
+        /// complete. Printing the counts and the names of the un-convertible elements in the same
+        /// pane means the reader cannot mistake the transformation for lossless.
+        /// </summary>
+        private string BuildWpfXaml()
         {
             if (LoadError != null)
+            {
+                return "cannot convert: " + LoadError + Environment.NewLine;
+            }
+            BamlDocument d = Document;
+            if (d == null)
+            {
+                return "stream is not recognised as any supported BAML generation."
+                       + Environment.NewLine;
+            }
+            if (d.Entries.Count == 0)
+            {
+                return "conversion requires a record-level decode, which this dialect does not have."
+                       + Environment.NewLine;
+            }
+
+            BamlXamlWriter.Options wopts = new BamlXamlWriter.Options();
+            wopts.ExpandCompoundBrushes = true;
+            string lh = BamlXamlWriter.Write(d, wopts);
+
+            LhConversionReport report;
+            string wpf = LhConverter.Convert(lh, new LhConversionOptions(), out report);
+
+            StringBuilder sb = new StringBuilder(wpf.Length + 2048);
+            sb.Append(wpf);
+
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine("<!--");
+            sb.AppendLine("  conversion report");
+            if (!report.IsLossless)
+            {
+                sb.AppendLine("  NOTE: some elements have no WPF equivalent and keep their own");
+                sb.AppendLine("  name under the prefix below. Markup that uses them will not load");
+                sb.AppendLine("  in WPF until they are replaced by hand.");
+            }
+            sb.AppendLine("    elements seen        : " + report.ElementsSeen.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("    attributes seen      : " + report.AttributesSeen.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("    renamed elements     : " + report.Renamed.Count.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("    substituted elements : " + report.Substituted.Count.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("    unconvertible        : " + report.Unsupported.Count.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("    WPF types available  : " + WpfTypeIndex.TypeCount.ToString(CultureInfo.InvariantCulture)
+                          + " (" + WpfTypeIndex.Source + ")");
+
+            AppendGroup(sb, "renamed (same role, different name)", report.Renamed);
+            AppendGroup(sb, "substituted (no exact equivalent)", report.Substituted);
+            AppendGroup(sb, "unconvertible (kept under the lh prefix)", report.Unsupported);
+
+            if (report.AttributeRenames.Count > 0)
+            {
+                sb.AppendLine("    --- attributes renamed ---");
+                for (int i = 0; i < report.AttributeRenames.Count; i++)
+                {
+                    sb.AppendLine("      " + report.AttributeRenames[i]);
+                }
+            }
+            sb.AppendLine("-->");
+            return sb.ToString();
+        }
+
+        /// <summary>Appends one counted group to the conversion report, largest first.</summary>
+        private static void AppendGroup(StringBuilder sb, string title,
+            List<KeyValuePair<string, int>> items)
+        {
+            if (items.Count == 0) return;
+            sb.AppendLine("    --- " + title + " ---");
+            List<KeyValuePair<string, int>> sorted = new List<KeyValuePair<string, int>>(items);
+            sorted.Sort(delegate (KeyValuePair<string, int> a, KeyValuePair<string, int> b)
+            {
+                return b.Value.CompareTo(a.Value);
+            });
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                sb.AppendLine("      " + sorted[i].Value.ToString(CultureInfo.InvariantCulture).PadLeft(6)
+                              + "  " + sorted[i].Key);
+            }
+        }
+
+        private string BuildXaml()
+        {            if (LoadError != null)
             {
                 return "cannot decompile: " + LoadError + Environment.NewLine;
             }

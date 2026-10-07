@@ -25,6 +25,10 @@ usage:
   baml tables <file>         print the assembly/type/attribute interning tables
   baml stats <file|dir>      record histogram and dialect summary
   baml recon <file>          reconnaissance dump (string tokens + inter-token gaps)
+  baml convert <file>        decompile, then convert the markup to WPF-readable XAML
+                             --report           print what could not be converted
+                             --prefix <p>       prefix for un-convertible elements (default lh)
+                             --no-comments      omit the per-element explanation comments
 
 options:
   -q, --quiet                suppress the banner
@@ -69,6 +73,8 @@ exit codes:
             List<string> positional = new List<string>();
             bool quiet = false;
             bool expandBrushes = false;
+            LhConversionOptions convertOptions = new LhConversionOptions();
+            bool convertReport = false;
             for (int i = 0; i < args.Length; i++)
             {
                 string a = args[i];
@@ -83,6 +89,18 @@ exit codes:
                 else if (a == "--no-header")
                 {
                     _noHeader = true;
+                }
+                else if (a == "--report")
+                {
+                    convertReport = true;
+                }
+                else if (a == "--no-comments")
+                {
+                    convertOptions.EmitComments = false;
+                }
+                else if (a == "--prefix" && i + 1 < args.Length)
+                {
+                    convertOptions.UnsupportedPrefix = args[++i];
                 }
                 else if (a == "-?" || a == "-h" || a == "--help")
                 {
@@ -131,6 +149,8 @@ exit codes:
                     return CommandStats(target);
                 case "recon":
                     return CommandRecon(target);
+                case "convert":
+                    return CommandConvert(target, convertOptions, convertReport);
                 default:
                     Console.Error.WriteLine("error: unknown command '" + command + "'");
                     Console.WriteLine();
@@ -229,6 +249,78 @@ exit codes:
                 new BamlLonghorn.BamlXamlWriter.Options();
             options.ExpandCompoundBrushes = expandBrushes;
             Console.Write(BamlXamlWriter.Write(document, options));
+            return 0;
+        }
+
+        /// <summary>
+        /// Decompiles, then converts the markup toward WPF, and reports what would not convert.
+        ///
+        /// The report is the point of the command as much as the markup is. A converter that
+        /// silently drops or renames what it cannot handle produces output that looks complete and
+        /// is not, so the count of un-convertible elements and their names are printed alongside.
+        /// </summary>
+        private static int CommandConvert(string target, LhConversionOptions options, bool report)
+        {
+            byte[] data = File.ReadAllBytes(target);
+            BamlDocument document = Load(data, target);
+            if (document.Entries.Count == 0)
+            {
+                Console.Error.WriteLine(
+                    "error: this dialect's record layer is not decoded, so conversion "
+                    + "is not available (try 'records' or 'recon')");
+                return 2;
+            }
+
+            BamlLonghorn.BamlXamlWriter.Options wopts = new BamlLonghorn.BamlXamlWriter.Options();
+            wopts.ExpandCompoundBrushes = true;
+            string lh = BamlXamlWriter.Write(document, wopts);
+
+            LhConversionReport rep;
+            string wpf = LhConverter.Convert(lh, options, out rep);
+
+            Console.Write(wpf);
+
+            if (report)
+            {
+                Console.WriteLine();
+                Console.WriteLine("<!--");
+                Console.WriteLine("  conversion report");
+                Console.WriteLine("    elements seen        : {0}", rep.ElementsSeen);
+                Console.WriteLine("    attributes seen      : {0}", rep.AttributesSeen);
+                Console.WriteLine("    renamed elements     : {0}", rep.Renamed.Count);
+                Console.WriteLine("    substituted elements : {0}", rep.Substituted.Count);
+                Console.WriteLine("    unconvertible        : {0}", rep.Unsupported.Count);
+                Console.WriteLine("    WPF type index       : {0} ({1} types from {2})",
+                    WpfTypeIndex.Source, WpfTypeIndex.TypeCount,
+                    string.Join(", ", WpfTypeIndex.AssembliesProbed));
+                if (rep.Renamed.Count > 0)
+                {
+                    Console.WriteLine("    --- renamed ---");
+                    foreach (KeyValuePair<string, int> kv in rep.Renamed)
+                        Console.WriteLine("      {0,6}  {1}", kv.Value, kv.Key);
+                }
+                if (rep.Substituted.Count > 0)
+                {
+                    Console.WriteLine("    --- substituted (no exact equivalent) ---");
+                    foreach (KeyValuePair<string, int> kv in rep.Substituted)
+                        Console.WriteLine("      {0,6}  {1}", kv.Value, kv.Key);
+                }
+                if (rep.Unsupported.Count > 0)
+                {
+                    Console.WriteLine("    --- unconvertible: kept under the '{0}' prefix ---",
+                        options.UnsupportedPrefix);
+                    List<KeyValuePair<string, int>> sorted =
+                        new List<KeyValuePair<string, int>>(rep.Unsupported);
+                    sorted.Sort(delegate (KeyValuePair<string, int> a, KeyValuePair<string, int> b)
+                    {
+                        return b.Value.CompareTo(a.Value);
+                    });
+                    foreach (KeyValuePair<string, int> kv in sorted)
+                        Console.WriteLine("      {0,6}  {1}", kv.Value, kv.Key);
+                }
+                Console.WriteLine("-->");
+            }
+
             return 0;
         }
 
